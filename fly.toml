@@ -1,0 +1,31 @@
+# Fly.io config. Change `app` to your own app name (it becomes https://<app>.fly.dev).
+app = "fridgebud"
+primary_region = "yyz"   # Toronto
+
+[mounts]
+  source = "fridgebud_data"   # holds the SQLite file; survives deploys
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # The 4:30 scheduler lives inside the server, so the machine must never sleep,
+  # and there must be exactly one of it (two would text everyone twice).
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# Restart Bud whenever it stops, however it stopped. The default for `fly deploy` gives up after
+# 10 restarts, which let a few minutes of Telegram 502s keep Bud down until someone noticed.
+[[restart]]
+  policy = "always"

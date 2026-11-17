@@ -1,0 +1,13 @@
+.env
+*.db
+*.db-journal
+__pycache__/
+.pytest_cache/
+.DS_Store
+
+# never commit secrets in any copy of the env file (only the example)
+.env.*
+!.env.example
+# local previews and scratch files
+list-preview.html
+egusi-preview.png

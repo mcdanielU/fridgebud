@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FridgeBud</title>
+<meta name="description" content="Bud is a text agent that knows what's in your fridge. Send a photo. He tells you what to cook tonight, what to buy, and what you kept out of the bin.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Layout idea: the cold light of an open fridge. Cool paper, deep spruce ink, one egg-yolk accent.
+     The product is a text conversation, so the hero is the conversation; the one loud object is the paper receipt. */
+  :root {
+    --paper: #eef3f2;
+    --surface: #ffffff;
+    --ink: #0c1f1c;
+    --muted: #50625e;
+    --line: #d3dedb;
+    --yolk: #ffc533;
+    --yolk-ink: #2a1d00;
+    --bubble: #dfe8e6;
+    --display: "Bricolage Grotesque", "Arial Narrow", system-ui, sans-serif;
+    --body: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0a1614; --surface: #11211e; --ink: #e9f1ef; --muted: #9db0ab; --line: #223633;
+      --yolk: #ffc533; --yolk-ink: #2a1d00; --bubble: #1b302c; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #0a1614; --surface: #11211e; --ink: #e9f1ef; --muted: #9db0ab; --line: #223633;
+    --yolk: #ffc533; --yolk-ink: #2a1d00; --bubble: #1b302c; color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 400 17px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+  :focus-visible { outline: 3px solid var(--yolk); outline-offset: 3px; border-radius: 6px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  h1, h2, h3 { font-family: var(--display); letter-spacing: -0.035em; line-height: 1; margin: 0; text-wrap: balance; }
+  h1 { font-size: clamp(44px, 7.4vw, 92px); font-weight: 800; }
+  h2 { font-size: clamp(32px, 4.6vw, 54px); font-weight: 700; }
+  h3 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
+  p { margin: 0; }
+  .eyebrow { font: 500 13px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+  /* nav */
+  .nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font: 800 21px/1 var(--display); letter-spacing: -0.03em; text-decoration: none; }
+  .mark { width: 28px; height: 32px; border-radius: 8px; background: var(--ink); position: relative; flex: none; }
+  .mark::before { content: ""; position: absolute; left: 0; right: 0; top: 11px; height: 2px; background: var(--paper); }
+  .mark::after { content: ""; position: absolute; right: 5px; top: 15px; width: 3px; height: 9px; border-radius: 2px; background: var(--yolk); box-shadow: 0 -11px 0 -0.5px var(--yolk); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; font: 600 16px/1 var(--body); text-decoration: none; padding: 14px 20px; border-radius: 999px; border: 1.5px solid var(--ink); background: transparent; color: var(--ink); transition: transform .15s ease, background .15s ease; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.primary { background: var(--yolk); color: var(--yolk-ink); border-color: var(--yolk); }
+  .btn.quiet { border-color: var(--line); }
+  .btn[aria-disabled="true"] { cursor: default; opacity: .75; transform: none; }
+  .btn.small { padding: 10px 16px; font-size: 15px; }
+
+  /* hero */
+  .hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 56px; align-items: center; padding: 40px 0 88px; }
+  .hero p.lede { font-size: 20px; line-height: 1.5; color: var(--muted); max-width: 31em; margin: 26px 0 30px; }
+  .hero p.lede b { color: var(--ink); font-weight: 600; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .fine { font-size: 14px; color: var(--muted); margin-top: 16px; }
+  h1 .hl { background: linear-gradient(transparent 62%, var(--yolk) 62%, var(--yolk) 92%, transparent 92%); padding: 0 .04em; }
+
+  .phone { background: var(--surface); border: 1px solid var(--line); border-radius: 36px; padding: 18px 16px 22px; max-width: 380px; margin-left: auto; box-shadow: 0 30px 60px -30px rgba(12, 31, 28, .35); }
+  .phone-head { display: flex; align-items: center; gap: 10px; padding: 4px 6px 14px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--yolk); color: var(--yolk-ink); display: grid; place-items: center; font: 800 16px/1 var(--display); }
+  .phone-head b { font-weight: 600; font-size: 15px; display: block; line-height: 1.2; }
+  .phone-head span { font-size: 12.5px; color: var(--muted); }
+  .thread { display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 86%; padding: 10px 13px; border-radius: 18px; font-size: 14.5px; line-height: 1.42; white-space: pre-line; animation: rise .5s ease backwards; }
+  .msg.bud { background: var(--bubble); border-bottom-left-radius: 5px; align-self: flex-start; }
+  .msg.me { background: var(--ink); color: var(--paper); border-bottom-right-radius: 5px; align-self: flex-end; }
+  .msg.photo { padding: 6px; }
+  .shelf { width: 150px; height: 104px; border-radius: 13px; background: var(--paper); display: grid; grid-template-rows: 1fr 1fr; gap: 3px; padding: 7px; }
+  .shelf i { display: flex; gap: 5px; align-items: flex-end; border-bottom: 2px solid var(--line); padding-bottom: 3px; }
+  .shelf b { display: block; border-radius: 4px 4px 2px 2px; background: var(--muted); opacity: .55; }
+  .stamp { text-align: center; font-size: 11.5px; color: var(--muted); margin: 4px 0; }
+  .msg:nth-child(1) { animation-delay: .15s; } .msg:nth-child(2) { animation-delay: .7s; }
+  .msg:nth-child(3) { animation-delay: 1.3s; } .msg:nth-child(4) { animation-delay: 1.9s; }
+  .msg:nth-child(5) { animation-delay: 2.5s; } .msg:nth-child(6) { animation-delay: 3.1s; }
+  @keyframes rise { from { transform: translateY(10px); } }
+  @media (prefers-reduced-motion: reduce) { .msg { animation: none; } html { scroll-behavior: auto; } .btn { transition: none; } }
+
+  /* sections */
+  section { padding: 84px 0; border-top: 1px solid var(--line); }
+  .head { display: grid; gap: 16px; max-width: 760px; margin-bottom: 48px; }
+  .head p { color: var(--muted); font-size: 19px; max-width: 36em; }
+
+  .fact { display: grid; grid-template-columns: auto 1fr; gap: 28px 40px; align-items: center; }
+  .fact .num { font: 800 clamp(64px, 11vw, 136px)/.9 var(--display); letter-spacing: -0.05em; font-variant-numeric: tabular-nums; }
+  .fact p { font-size: 21px; line-height: 1.45; max-width: 26em; }
+  .fact small { display: block; color: var(--muted); font-size: 14px; margin-top: 10px; }
+
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; counter-reset: step; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 26px; display: grid; gap: 12px; align-content: start; }
+  .step::before { counter-increment: step; content: "0" counter(step); font: 500 13px/1 var(--mono); color: var(--muted); letter-spacing: .08em; }
+  .step p { color: var(--muted); }
+  .say { font: 400 13.5px/1.45 var(--mono); background: var(--paper); border-radius: 12px; padding: 12px 14px; color: var(--ink); margin-top: 6px; white-space: pre-line; }
+
+  .does { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; border-top: 1px solid var(--line); }
+  .do { padding: 26px 28px 28px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .do:nth-child(odd) { border-right: 1px solid var(--line); }
+  .do:nth-child(even) { padding-left: 28px; padding-right: 0; }
+  .do p { color: var(--muted); }
+  .do code { font: 400 14px/1.4 var(--mono); color: var(--ink); background: var(--bubble); padding: 2px 7px; border-radius: 6px; }
+
+  .money { display: grid; grid-template-columns: 1fr auto; gap: 64px; align-items: center; }
+  .money ul { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 14px; }
+  .money li { padding-left: 26px; position: relative; color: var(--muted); max-width: 30em; }
+  .money li::before { content: ""; position: absolute; left: 0; top: .62em; width: 12px; height: 2px; background: var(--ink); }
+  .money li b { color: var(--ink); font-weight: 600; }
+  .receipt { width: 300px; background: #fffdf6; color: #1b1a17; font: 400 13.5px/1.55 var(--mono); padding: 26px 22px 30px; transform: rotate(2deg);
+    box-shadow: 0 24px 50px -24px rgba(12, 31, 28, .45);
+    --tooth: 10px;
+    -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--tooth) 100%;
+            mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--tooth) 100%; }
+  .receipt h4 { margin: 0 0 2px; font: 500 14px/1.3 var(--mono); letter-spacing: .06em; text-align: center; }
+  .receipt .sub { text-align: center; color: #6d6a60; margin-bottom: 14px; }
+  .receipt .row { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
+  .receipt hr { border: 0; border-top: 1.5px dashed #b9b4a4; margin: 12px 0; }
+  .receipt .total { font: 500 19px/1.2 var(--mono); background: var(--yolk); color: var(--yolk-ink); padding: 8px 10px; margin: 2px -10px; display: flex; justify-content: space-between; }
+  .receipt .tossed { color: #8a8678; }
+  .receipt .eg { text-align: center; color: #8a8678; margin-top: 14px; font-size: 12px; letter-spacing: .08em; }
+
+  .rules { display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; }
+  .rule { display: grid; gap: 8px; align-content: start; border-top: 2px solid var(--ink); padding-top: 16px; }
+  .rule p { color: var(--muted); font-size: 16px; }
+
+  .close { text-align: left; display: grid; gap: 28px; justify-items: start; }
+  .close h2 { font-size: clamp(40px, 6.4vw, 80px); font-weight: 800; max-width: 12em; }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0 44px; color: var(--muted); font-size: 14px; display: grid; gap: 10px; }
+  footer .top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; color: var(--ink); }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; gap: 44px; padding-bottom: 64px; }
+    .phone { margin: 0 auto; }
+    .steps, .rules { grid-template-columns: 1fr 1fr; }
+    .money { grid-template-columns: 1fr; gap: 44px; justify-items: center; }
+    .money > div:first-child { justify-self: start; }
+    .fact { grid-template-columns: 1fr; }
+    section { padding: 64px 0; }
+  }
+  @media (max-width: 620px) {
+    .steps, .rules, .does { grid-template-columns: 1fr; }
+    .do, .do:nth-child(even) { padding: 22px 0; border-right: 0; }
+    .do:nth-child(odd) { border-right: 0; }
+    .nav .btn { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav class="nav" aria-label="Main">
+    <a class="brand" href="#top"><span class="mark" aria-hidden="true"></span>FridgeBud</a>
+    <a class="btn small quiet" data-try href="#try">Try Bud</a>
+  </nav>
+
+  <main id="top">
+    <header class="hero">
+      <div>
+        <h1>Your fridge texts you <span class="hl">before</span> the food dies.</h1>
+        <p class="lede">Bud is a text agent that knows what's in your fridge. <b>Send one photo.</b> He tells you what to cook tonight, what to pick up, and how much you kept out of the bin. No app to open.</p>
+        <div class="cta">
+          <a class="btn primary" data-try href="#try">Try Bud on Telegram</a>
+          <a class="btn quiet" href="#how">See how it works</a>
+        </div>
+        <p class="fine">Free for your first 14 days. One text a day, and only when something needs using.</p>
+      </div>
+
+      <div class="phone" role="img" aria-label="Example conversation: a fridge photo, Bud's plan for what to use first, a question about eggs, and a rescued dinner.">
+        <div class="phone-head">
+          <span class="avatar" aria-hidden="true">B</span>
+          <div><b>Bud</b><span>lives in your fridge</span></div>
+        </div>
+        <div class="thread">
+          <div class="msg me photo"><div class="shelf" aria-hidden="true">
+            <i><b style="width:22px;height:30px"></b><b style="width:14px;height:22px"></b><b style="width:30px;height:16px"></b><b style="width:16px;height:34px"></b></i>
+            <i><b style="width:34px;height:18px"></b><b style="width:18px;height:28px"></b><b style="width:24px;height:22px"></b></i>
+          </div></div>
+          <div class="msg bud">👀 I've had a good look around in here.
+Use first:
+- chicken thighs: by Thu
+- baby spinach: by tomorrow
+Tonight: Quick curry, about 30 min.</div>
+          <div class="msg me">do I have eggs?</div>
+          <div class="msg bud">Yep, I've got eyes on it 👀 eggs, added Mon Nov 16.</div>
+          <div class="msg me">made it</div>
+          <div class="msg bud">🎉 RESCUED: chicken thighs, baby spinach. I'm doing a little dance in the crisper.</div>
+          <div class="stamp">Example conversation</div>
+        </div>
+      </div>
+    </header>
+
+    <section aria-labelledby="why">
+      <div class="fact">
+        <div class="num" id="why">$1,300</div>
+        <p>of edible food goes in the bin in the average Canadian home every year. Most of it was fine on Tuesday and forgotten by Friday.
+          <small>Source: <a href="https://www.toronto.ca/services-payments/water-environment/live-green-toronto/rethink-food/food-waste/">City of Toronto, food waste</a>.</small></p>
+      </div>
+    </section>
+
+    <section id="how" aria-labelledby="how-h">
+      <div class="head">
+        <span class="eyebrow">How it works</span>
+        <h2 id="how-h">Three texts. That's the whole product.</h2>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <h3>Show Bud your fridge</h3>
+          <p>A photo of the fridge, your grocery haul or a receipt. Bud picks out what won't last and ignores what will.</p>
+          <div class="say">Got it: chicken thighs, baby spinach, milk, yogurt. I'll skip ketchup.</div>
+        </div>
+        <div class="step">
+          <h3>Get one text at 4:30</h3>
+          <p>What to use tonight and a dinner that uses it. Nothing at risk means no text.</p>
+          <div class="say">Use soon: baby spinach (use today).
+Tonight: Garlic spinach pasta, about 15 min.</div>
+        </div>
+        <div class="step">
+          <h3>See what you kept</h3>
+          <p>Every Sunday, a receipt of the food you rescued, in dollars, at the prices on your own receipts.</p>
+          <div class="say">$15.46 KEPT OUT OF THE BIN
+Rescue rate: 67% (2 of 3)</div>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="does-h">
+      <div class="head">
+        <span class="eyebrow">An agent, not a reminder</span>
+        <h2 id="does-h">Ask Bud like you'd ask whoever's home.</h2>
+        <p>Bud keeps a running picture of your kitchen and acts on it. Plain language in, things done out.</p>
+      </div>
+      <div class="does">
+        <div class="do"><h3>Knows what you have</h3><p><code>do I have oranges left?</code> is answered from your own photos and receipts, with the date Bud last saw them.</p></div>
+        <div class="do"><h3>Cooks from what's there</h3><p><code>what's for dinner?</code> gets one clear idea built around whatever turns soonest.</p></div>
+        <div class="do"><h3>Saves any recipe</h3><p>Send a link, a screenshot or a cooking video. Bud saves it, then tells you which ingredients you already have.</p></div>
+        <div class="do"><h3>Writes the shopping list</h3><p><code>put what I'm missing on my list</code>. Send the receipt later and it ticks itself off.</p></div>
+        <div class="do"><h3>Talks you through it</h3><p>Hands full? Bud turns any recipe into an audio cook-along you can listen to at the stove.</p></div>
+        <div class="do"><h3>Learns your fridge</h3><p>Every "tossed" and "still good" teaches Bud how fast food really goes in your home, so the next text is better timed.</p></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="money-h">
+      <div class="money">
+        <div>
+          <span class="eyebrow">Proof, every Sunday</span>
+          <h2 id="money-h" style="margin-top:16px">A receipt for the money you didn't throw away.</h2>
+          <ul>
+            <li><b>Your prices, not estimates.</b> Dollars come from your own receipts.</li>
+            <li><b>Only what you confirm.</b> Bud counts food you told him you used.</li>
+            <li><b>Built to screenshot.</b> Send it to the person who always finds the wilted cilantro.</li>
+          </ul>
+        </div>
+        <div class="receipt" aria-label="Example rescue receipt">
+          <h4>BUD'S RESCUE RECEIPT</h4>
+          <div class="sub">Week of Nov 16 to 22</div>
+          <div class="row"><span>chicken thighs</span><span>$11.47</span></div>
+          <div class="row"><span>baby spinach</span><span>$3.99</span></div>
+          <div class="row"><span>chili (leftovers)</span><span>eaten</span></div>
+          <div class="row tossed"><span>strawberries</span><span>tossed</span></div>
+          <hr>
+          <div class="total"><span>KEPT</span><span>$15.46</span></div>
+          <hr>
+          <div class="row"><span>Rescue rate</span><span>75%</span></div>
+          <div class="eg">EXAMPLE</div>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="rules-h">
+      <div class="head">
+        <span class="eyebrow">House rules</span>
+        <h2 id="rules-h">Useful, then quiet.</h2>
+      </div>
+      <div class="rules">
+        <div class="rule"><h3>No app</h3><p>Bud lives in your messages. Nothing to install, nothing to keep tidy.</p></div>
+        <div class="rule"><h3>No nagging</h3><p>One text a day at most. If nothing is at risk, Bud says nothing.</p></div>
+        <div class="rule"><h3>No guilt</h3><p>Bud is dramatic about the food, never about you. No diets, no scores.</p></div>
+        <div class="rule"><h3>No safety calls</h3><p>Bud helps you plan what to use first. Whether food is safe to eat is always your call.</p></div>
+      </div>
+    </section>
+
+    <section id="try" aria-labelledby="try-h">
+      <div class="close">
+        <h2 id="try-h">Meet the little guy in your fridge.</h2>
+        <div class="cta">
+          <a class="btn primary" data-try href="#try">Try Bud on Telegram</a>
+        </div>
+        <p class="fine" id="try-note" style="margin-top:-8px">Free for your first 14 days. Reply STOP at any time.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="top"><span class="brand" style="font-size:17px"><span class="mark" aria-hidden="true" style="width:22px;height:26px;border-radius:6px"></span>FridgeBud</span><span>Made in Kitchener, Ontario</span></div>
+    <p>FridgeBud helps you plan what to use first. It never tells you a food is safe to eat: always check food yourself. Storage times follow <a href="https://www.canada.ca/en/health-canada/services/general-food-safety-tips/safe-food-storage.html">Health Canada's fridge storage chart</a>. Conversations shown are examples.</p>
+  </footer>
+</div>
+
+<script>
+  // Set this to the bot's Telegram username (without @) to switch the buttons on.
+  const BOT_USERNAME = "";
+
+  document.querySelectorAll("[data-try]").forEach((el) => {
+    if (BOT_USERNAME) {
+      el.href = "https://t.me/" + BOT_USERNAME;
+      el.target = "_blank";
+      el.rel = "noopener";
+    } else if (el.closest("#try")) {
+      el.textContent = "Early access opens soon";
+      el.removeAttribute("href");
+      el.setAttribute("aria-disabled", "true");
+    }
+  });
+  if (!BOT_USERNAME) {
+    const note = document.getElementById("try-note");
+    if (note) note.textContent = "Early access is opening to a small group first. Free for your first 14 days.";
+  }
+</script>
+</body>
+</html>
