@@ -16,6 +16,8 @@ store a phone number. Everything else (engine, onboarding, receipt) is shared.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
+
 import json
 import re
 import os
@@ -135,6 +137,18 @@ class TelegramSender:
         self.call = call or _api_call(token)
         self.download = download or _download(token)
         self.upload = upload or _upload(token)
+        self._sent: "OrderedDict[tuple[str, int], str]" = OrderedDict()   # (chat, message id) -> text, for reactions
+
+    def sent_text(self, to: str, message_id: int) -> str | None:
+        """What Bud's message said, so a reaction can be tied to the idea it was tapped on."""
+        return self._sent.get((to, message_id))
+
+    def _remember(self, to: str, sent, text: str) -> None:
+        mid = sent.get("message_id") if isinstance(sent, dict) else None
+        if mid is not None:
+            self._sent[(to, mid)] = text
+            while len(self._sent) > 400:
+                self._sent.popitem(last=False)
 
     def send(self, to: str, body: str) -> None:
         if not to.startswith(PREFIX):
@@ -145,7 +159,7 @@ class TelegramSender:
             params = {"chat_id": to[len(PREFIX):], "text": part}
             if buttons and i == len(parts) - 1:   # buttons go under the last piece of a long message
                 params["reply_markup"] = json.dumps({"inline_keyboard": [[{"text": label, "url": url}] for label, url in buttons]})
-            self.call("sendMessage", params, 20)
+            self._remember(to, self.call("sendMessage", params, 20), part)
 
     def send_audio(self, to: str, data: bytes, title: str, caption: str = "") -> None:
         if not to.startswith(PREFIX):
@@ -193,8 +207,18 @@ class TelegramSender:
             pass
 
 
+REACTION_WORDS = {"👍", "👎", "🔥", "👌"}    # the only reactions Bud treats as an answer; others are ignored
+
+
 def parse_update(update: dict) -> tuple[str, str, list[tuple[str, str]]] | None:
     """One Telegram update -> (household id, text, [(file_id, media type)]), or None to ignore it."""
+    react = update.get("message_reaction")
+    if react:   # they tapped a reaction instead of typing: 👍 👎 🔥 👌 mean what the typed emoji means
+        if (react.get("chat") or {}).get("type") != "private":
+            return None
+        added = [r.get("emoji") for r in react.get("new_reaction") or [] if r.get("type") == "emoji"]
+        added = [e for e in added if e in REACTION_WORDS]
+        return (f"{PREFIX}{react['chat']['id']}", added[0], []) if added else None
     msg = update.get("message")
     if not msg or msg.get("chat", {}).get("type") != "private":
         return None  # one-to-one chats only; ignore groups, edits and channel posts
@@ -245,7 +269,10 @@ def replied_recipe(update: dict) -> str | None:
     replied = (update.get("message") or {}).get("reply_to_message") or {}
     if not (replied.get("from") or {}).get("is_bot"):
         return None
-    body = replied.get("text") or replied.get("caption") or ""
+    return recipe_title_in(replied.get("text") or replied.get("caption") or "")
+
+
+def recipe_title_in(body: str) -> str | None:
     for line in body.splitlines():
         if line.startswith("📖 "):
             return line[2:].strip() or None
@@ -253,11 +280,40 @@ def replied_recipe(update: dict) -> str | None:
     return m.group(1).strip() if m else None
 
 
+OLDER_IDEA = "That one's from earlier 🙂 Tap 👍 or 👎 on my newest idea and I'll use it."
+
+
+def reaction_applies(app: App, who: str, message_id: int) -> str | None:
+    """A reaction means what it's tapped on. Returns None to go ahead, or a short note to send instead.
+    Tapped on the current idea or a recipe card: fine (a card becomes the recipe being rated). On an older idea,
+    or on a chat line that isn't an idea at all: not what they meant, so don't change their taste. A message
+    from before a restart can't be identified, so it counts as the current idea."""
+    text = app.sender.sent_text(who, message_id) if hasattr(app.sender, "sent_text") else None
+    if text is None:
+        return None
+    title = recipe_title_in(text)
+    if title:
+        if hasattr(app.service, "focus_recipe"):
+            app.service.focus_recipe(who, title)
+        return None
+    if "Reply 👍 to cook this" in text:
+        current = getattr(app.service, "is_current_pick", None)
+        return None if current is None or current(who, text) else OLDER_IDEA
+    return ""     # some other message: ignore quietly
+
+
 def handle_update(app: App, update: dict) -> None:
     parsed = parse_update(update)
     if parsed is None:
         return
     who, text, media = parsed
+    react = update.get("message_reaction")
+    if react:
+        note = reaction_applies(app, who, react.get("message_id", 0))
+        if note is not None:
+            if note:
+                app.send(who, note)
+            return
     if wants_stats(who, text, media, getattr(app, "owners", set())):
         app.send(who, stats_text(app))
         return
@@ -307,7 +363,7 @@ def poll(app: App, call: Call, stop: threading.Event, step_down: bool = False, r
     conflicts: list[float] = []
     while not stop.is_set():
         try:
-            updates = call("getUpdates", {"offset": offset, "timeout": 25, "allowed_updates": '["message"]'}, 40)
+            updates = call("getUpdates", {"offset": offset, "timeout": 25, "allowed_updates": '["message","message_reaction"]'}, 40)
         except TelegramError as err:
             if step_down and "(409)" in str(err):
                 now = time.monotonic()

@@ -942,6 +942,14 @@ class Service:
         self.store.log(h.id, now, "persona_asked", when="nudge")
         return messages.TASTE_PS
 
+    def is_current_pick(self, phone: str, text: str) -> bool:
+        """Is the idea in this Bud message the one on the table right now (not an older one they scrolled to)?"""
+        with self.lock:
+            member = self.accounts.member(phone)
+            h = self.store.get_household(member.household_id) if member else self.store.get_household_by_phone(phone)
+            title = ((h.last_suggestion or {}).get("recipe") if h else None) or ""
+            return bool(title) and title.lower() in text.lower()
+
     def focus_recipe(self, phone: str, title: str) -> bool:
         """They replied to one of Bud's recipe messages: make that recipe the one "this" and "it" mean."""
         with self.lock:

@@ -105,3 +105,66 @@ def test_dotenv_loader(tmp_path, monkeypatch):
     import os
     assert os.environ["FB_TEST_TOKEN"] == "abc:123" and os.environ["FB_TEST_KEEP"] == "old"
     monkeypatch.delenv("FB_TEST_TOKEN")
+
+
+def test_tapping_a_thumbs_reaction_counts_as_replying_with_that_emoji():
+    def react(emoji, chat_type="private"):
+        return {"message_reaction": {"chat": {"id": 7, "type": chat_type}, "message_id": 3, "user": {"id": 7},
+                                     "old_reaction": [], "new_reaction": [{"type": "emoji", "emoji": emoji}]}}
+    assert parse_update(react("👍")) == ("tg:7", "👍", [])
+    assert parse_update(react("👎")) == ("tg:7", "👎", [])
+    assert parse_update(react("🔥")) == ("tg:7", "🔥", [])
+    assert parse_update(react("🤡")) is None                      # reactions Bud doesn't use are ignored
+    assert parse_update(react("👍", chat_type="supergroup")) is None
+    removed = {"message_reaction": {"chat": {"id": 7, "type": "private"}, "message_id": 3,
+                                    "old_reaction": [{"type": "emoji", "emoji": "👍"}], "new_reaction": []}}
+    assert parse_update(removed) is None                           # taking a reaction back does nothing
+
+
+class _Svc:
+    def __init__(self, current):
+        self.current, self.focused = current, []
+
+    def is_current_pick(self, who, text):
+        return self.current in text
+
+    def focus_recipe(self, who, title):
+        self.focused.append(title)
+        return True
+
+
+class _App:
+    def __init__(self, current="Tacos"):
+        self.sender = TelegramSender(call=lambda *a, **k: {})
+        self.service = _Svc(current)
+        self.sent = []
+
+    def send(self, who, text):
+        self.sent.append(text)
+
+
+def test_a_reaction_means_the_message_it_is_tapped_on():
+    from fridgebud.telegram import OLDER_IDEA, reaction_applies
+    app = _App(current="Tacos")
+    pick_now = "Tonight: Tacos, 20 min (uses chicken)\n\nReply 👍 to cook this\nReply 👎 for a different idea"
+    pick_old = "Tonight: Thai basil stir-fry, 15 min (uses shrimp)\n\nReply 👍 to cook this\nReply 👎 for a different idea"
+    card = "📖 Jollof rice\nSteps: ..."
+    chat = "I couldn't find that, try LIST."
+    for mid, text in ((1, pick_now), (2, pick_old), (3, card), (4, chat)):
+        app.sender._remember("tg:7", {"message_id": mid}, text)
+    assert reaction_applies(app, "tg:7", 1) is None                # the idea on the table: go ahead
+    assert reaction_applies(app, "tg:7", 2) == OLDER_IDEA          # an older idea: don't change today's pick
+    assert reaction_applies(app, "tg:7", 3) is None and app.service.focused == ["Jollof rice"]   # rates that dish
+    assert reaction_applies(app, "tg:7", 4) == ""                  # not an idea at all: ignore quietly
+    assert reaction_applies(app, "tg:7", 99) is None               # sent before a restart: treat as current
+
+
+def test_old_idea_reaction_gets_a_note_and_no_taste_change():
+    app, tg = make_app()
+    for text in ("/start", "yes", "1", "bought ground beef, tortillas"):
+        handle_update(app, msg(text))
+    app.sender._remember(f"tg:{CHAT}", {"message_id": 50}, "Tonight: Old dish, 10 min (uses beef)\n\nReply 👍 to cook this\nReply 👎 for a different idea")
+    before = len(tg.texts())
+    handle_update(app, {"message_reaction": {"chat": {"id": CHAT, "type": "private"}, "message_id": 50,
+                                             "new_reaction": [{"type": "emoji", "emoji": "👎"}]}})
+    assert tg.texts()[before:] == ["That one's from earlier 🙂 Tap 👍 or 👎 on my newest idea and I'll use it."]
