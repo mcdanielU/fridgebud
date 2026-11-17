@@ -288,7 +288,8 @@ WELCOME_BACK = "👋 Welcome back! Your daily ideas are back on."
 
 
 def noticed(cuisine: str) -> str:
-    return f"🧠 Noticing you love {cuisine} food. I'll lean that way. (Not right? Just tell me what you'd rather eat.)"
+    return (f"🧠 You've been asking about a lot of {cuisine} food lately, so I'll suggest a bit more of it. "
+            "Just a guess though. Tell me anytime what you'd rather eat.")
 
 
 def notebook(persona: dict, dislikes: list[str], diet: str, saved: int, learned: list[str], month: float,

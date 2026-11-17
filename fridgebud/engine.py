@@ -252,10 +252,31 @@ class Engine:
             self.store.save_household(h)
             if text:
                 self.store.log(h.id, now, "nudge", text=text)
+                self._log_decision(h, now, local)
                 out.append((h.phone, text))
             else:
                 self.store.log(h.id, now, "nudge_skipped", reason="nothing at risk")
         return out
+
+    POLICY = "rules_v2"
+
+    def _log_decision(self, h: Household, now: datetime, local: datetime) -> None:
+        """Training data for later: what Bud knew when it picked (context), what it picked (action), under which
+        policy. The outcome (cooked, swapped, rated, ignored) is joined on afterwards by fridgebud.dataset."""
+        state = h.last_suggestion or {}
+        title = state.get("recipe")
+        if not title:
+            return
+        p = h.persona or {}
+        w = taste.weights(p)
+        self.store.log(
+            h.id, now, "decision", policy=self.POLICY, recipe=title,
+            cuisine=recipes.cuisine_for(title) or taste.cuisine_of(title), novelty=state.get("novelty"),
+            rescues=len(state.get("item_ids") or []), hour=local.hour, weekday=local.weekday(),
+            variety=round(taste.variety(p), 3), bar=taste.bar(p),
+            taste={c: round(v, 2) for c, v in sorted(w.items(), key=lambda kv: -kv[1])[:6]},
+            on_hand=len(self.store.active_items(h.id)), at_risk=len(self.watchlist(h, local.date())),
+            cadence=p.get("cadence"), main_meal=p.get("main_meal"))
 
     def compose_nudge(self, h: Household, today: date) -> str | None:
         wl = self.watchlist(h, today)

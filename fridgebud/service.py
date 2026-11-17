@@ -183,7 +183,7 @@ class Service:
         h = self.store.get_household(h.id)
         if weight >= 1 and taste.weights(h.persona).get(cuisine, 0.0) <= 0 and cuisine not in recipes_mod.MAINSTREAM:
             h.persona = taste.nudge_variety(h.persona, 0.8, 0.05)        # they went looking for something new themselves
-        persona, new = taste.learn(h.persona, cuisine, weight)
+        persona, new = taste.learn(h.persona, cuisine, weight, now.date())
         h.persona = persona
         self.store.save_household(h)
         self.store.log(h.id, now, "taste_signal", cuisine=cuisine, weight=weight)
@@ -1228,6 +1228,8 @@ class Service:
                     hh = self.store.get_household(h.id)
                     hh.last_suggestion = dict(hh.last_suggestion or {}, alt=hint[0])
                     self.store.save_household(hh)
+                    self.store.log(h.id, now, "decision_alt", policy=self.engine.POLICY, recipe=hint[0],
+                                   cuisine=recipes_mod.cuisine_for(hint[0]) or taste.cuisine_of(hint[0]))
                 elif hint:
                     text += "\n\n" + messages.saved_recipe_hint(*hint)
                 ignored = self._ignored(h)

@@ -139,13 +139,17 @@ def test_bud_learns_cuisine_from_what_they_ask_for_and_says_so_once():
         s.handle_message(A, text, MON)
     before = [t for p, t in s.tick(at(0)) if p == A][0]
     assert "Jollof" not in before                                       # no idea of their taste yet
-    first = s.handle_message(A, "recipe egusi soup", at(0, 18))
-    assert not any("Noticing" in r for r in first)
-    second = s.handle_message(A, "how do I make jollof rice", at(0, 19))
-    assert second[-1] == messages.noticed("West African")              # said once, when it tips over
-    third = s.handle_message(A, "recipe suya", at(0, 20))
-    assert not any("Noticing" in r for r in third)                      # never repeated
-    s.handle_message(A, "bought chicken thighs, tomatoes", at(1, 9))
+    texts = ["recipe egusi soup", "how do I make jollof rice", "recipe suya"]
+    for i, t in enumerate(texts):                                       # a few lookups is not "love"
+        out = s.handle_message(A, t, at(0, 18 + i))
+        assert messages.noticed("West African") not in out
+    same_day = s.handle_message(A, "recipe efo riro", at(0, 22))
+    assert messages.noticed("West African") not in same_day            # four in one sitting is still not a taste
+    fourth = s.handle_message(A, "recipe ofada stew", at(1, 8))
+    assert fourth[-1] == messages.noticed("West African")              # said once, when it tips over
+    fifth = s.handle_message(A, "recipe akara", at(1, 9))
+    assert messages.noticed("West African") not in fifth               # never repeated
+    s.handle_message(A, "bought chicken thighs, tomatoes", at(1, 10))
     after = [t for p, t in s.tick(at(1)) if p == A][0]
     from fridgebud import taste
     assert taste.cuisine_of(after.split("Tonight: ")[1].split(",")[0]) == "West African" or "Efo" in after or "pepper soup" in after
@@ -442,3 +446,35 @@ def test_stats_track_the_daily_loop(svc):
     assert lp["picks"] == 1 and lp["cook"]["n"] == 1 and lp["made_after"]["n"] == 1 and lp["rated"] == {"love": 1}
     text = metrics.render(rep)
     assert "THE DAILY LOOP (last 7 days)" in text and "👍 cook it 100% (1/1)" in text and "Rated a dish" in text
+
+
+def test_taste_bar_adapts_and_old_signals_fade():
+    from datetime import date
+    from fridgebud import taste
+    d0 = date(2026, 11, 1)
+    p = {}
+    for i in range(3):                                                  # asked on 3 days: Bud may say it noticed
+        p, new = taste.learn(p, "Thai", 2.5, d0.replace(day=1 + i))
+    assert new and taste.learned(p) == ["Thai"]
+    assert taste.bar(p) == taste.LEARNED
+    p, _ = taste.learn(p, "Thai", -2.0, d0.replace(day=4))              # they shot one down: Bud was too eager
+    assert taste.bar(p) > taste.LEARNED
+    q, _ = taste.learn({}, "Thai", 5.0, d0)
+    q, _ = taste.learn(q, "Italian", 1.0, date(2026, 12, 20))           # 7 weeks later, the old Thai has faded
+    assert q["learned"]["Thai"] < 1.5
+
+
+def test_every_daily_pick_is_logged_as_training_data_with_its_outcome():
+    from tests.test_kitchen import FakeChef
+    from fridgebud import dataset
+    s = Service(Engine(Store()), Config(number="+15195550000"), chef=FakeChef())
+    for text in ("hi", "yes", "2", "bought chicken thighs, bell peppers, tortillas, baby spinach, eggs, cheddar"):
+        s.handle_message(A, text, MON)
+    s.tick(at(0))
+    decisions = s.store.events(None, "decision")
+    assert len(decisions) == 1
+    pl = decisions[0]["payload"]
+    assert pl["policy"] == "rules_v2" and pl["recipe"] and "variety" in pl and "taste" in pl and "hour" in pl
+    s.handle_message(A, "👍", at(0, 16, 40))
+    table = dataset.rows(s.store)
+    assert len(table) == 1 and table[0]["locked"] == 1 and table[0]["swapped"] == 0

@@ -1,16 +1,20 @@
 """What cuisines a household actually eats, learned from what they do, not just what they said once.
 
 Every dish they ask for, save, cook or rate is a signal for its cuisine. Signals add up in persona["learned"];
-once a cuisine passes LEARNED it counts like something they told Bud, and Bud says so once ("Noticing you love
-West African food"), so they can see it learning (and correct it). Stated cuisines from a voice note or TASTE
+once a cuisine passes LEARNED it counts like something they told Bud, and Bud says so once ("Looks like you've been into
+West African food lately"), so they can see it learning (and correct it). Stated cuisines from a voice note or TASTE
 count most. Picks lean toward the strongest; nothing is ever ruled out by a guess.
 """
 from __future__ import annotations
 
 import re
+from datetime import date
 
-LEARNED = 2.0          # signals before a cuisine counts as "theirs"
+LEARNED = 6.0          # signals before Bud says a cuisine is "theirs" (each lookup counts 1.5, so about 4 of them)
 STATED = 3.0           # what they told Bud outright
+BAR_MIN, BAR_MAX = 4.0, 14.0   # the bar adapts per home between these
+FADE_PER_DAY = 0.97    # old signals fade (about a 3-week half-life), so taste can change
+MIN_DAYS = 2           # a one-sitting binge is not a taste: signals must come from at least 2 different days
 
 # Checked in this order, so "green curry" is Thai before "curry" is Indian and "curry goat" is Caribbean.
 CUISINES: list[tuple[str, str]] = [
@@ -62,26 +66,67 @@ def weights(persona: dict | None) -> dict[str, float]:
     return out
 
 
+def bar(persona: dict | None) -> float:
+    """How much evidence Bud wants before saying a cuisine is "theirs". Adapts: rises when Bud has been
+    wrong about this home, falls when it has been right."""
+    return float((persona or {}).get("bar", LEARNED))
+
+
+def _days(persona: dict | None, cuisine: str) -> int:
+    return len(((persona or {}).get("days") or {}).get(cuisine) or [])
+
+
 def learned(persona: dict | None) -> list[str]:
     """Cuisines Bud worked out on its own (not ones they stated), strongest first."""
     p = persona or {}
     stated = {normalize(str(c)) for c in p.get("cuisines") or []}
     scores = p.get("learned") or {}
-    return [c for c, s in sorted(scores.items(), key=lambda kv: -kv[1]) if s >= LEARNED and c not in stated]
+    b = bar(p)
+    return [c for c, s in sorted(scores.items(), key=lambda kv: -kv[1])
+            if s >= b and _days(p, c) >= MIN_DAYS and c not in stated]
 
 
-def learn(persona: dict | None, cuisine: str | None, weight: float) -> tuple[dict, bool]:
-    """Add one signal. Returns (new persona, True if this cuisine just became one Bud should say it noticed)."""
+def learn(persona: dict | None, cuisine: str | None, weight: float, today=None) -> tuple[dict, bool]:
+    """Add one signal. Returns (new persona, True if this cuisine just became one Bud should say it noticed).
+
+    Adaptive in three ways: old signals fade with time (`today`), a cuisine needs signals from MIN_DAYS different
+    days, and the evidence bar moves per home: a strong thumbs-down on something Bud already leans toward raises
+    it (Bud was too eager), a strong yes lowers it (Bud reads this person well)."""
     p = dict(persona or {})
     if not cuisine:
         return p, False
     scores = dict(p.get("learned") or {})
+    if today is not None:
+        last = p.get("learned_on")
+        if last:
+            try:
+                gap = max(0, (today - date.fromisoformat(last)).days)
+            except ValueError:
+                gap = 0
+            if gap:
+                scores = {c: round(v * FADE_PER_DAY ** gap, 2) if v > 0 else v for c, v in scores.items()}
+        p["learned_on"] = today.isoformat()
     before = scores.get(cuisine, 0.0)
+    b = bar(p)
+    if before >= b and abs(weight) >= 1.5:
+        p["bar"] = round(max(BAR_MIN, b * 0.9) if weight > 0 else min(BAR_MAX, b * 1.4), 2)
     after = max(-5.0, min(20.0, before + weight))
     scores[cuisine] = round(after, 2)
     p["learned"] = scores
+    if weight > 0:
+        days = {c: list(v) for c, v in (p.get("days") or {}).items()}
+        mark = today.isoformat() if today is not None else "?"
+        seen = days.setdefault(cuisine, [])
+        if mark not in seen:
+            seen.append(mark)
+        days[cuisine] = seen[-10:]
+        p["days"] = days
     stated = {normalize(str(c)) for c in p.get("cuisines") or []}
-    return p, before < LEARNED <= after and cuisine not in stated
+    told = list(p.get("announced") or [])
+    new = (after >= bar(p) and _days(p, cuisine) >= MIN_DAYS and cuisine not in stated and cuisine not in told)
+    if new:
+        p["announced"] = told + [cuisine]
+    return p, new
 
 
 # How much newness they want: a fuzzy dial, 0 = comfort food, 1 = always something new -------------------------
