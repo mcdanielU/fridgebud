@@ -207,13 +207,13 @@ def test_asking_for_a_meal_gets_a_dish_for_that_meal(ask, label, meal):
     svc = fridge_with("eggs", "bread", "baby spinach", "chicken thighs", "tomatoes", "leaf lettuce")
     reply = svc.handle_message(A, ask, at(0, 9))[0]
     assert meal in BY_NAME[_idea_name(reply, label)].meals
-    assert f"Another idea? {meal.upper()}" in reply
+    assert "Reply 👍 to cook this" in reply and "Reply 👎 for a different idea" in reply
 
 
 def test_snacks_are_snacks():
     svc = fridge_with("hummus", "carrots", "chicken thighs")
     reply = svc.handle_message(A, "something to snack on", at(0, 15))[0]
-    assert reply.startswith("Snack: Hummus and veg sticks") and "Had it? Reply MADE" in reply
+    assert reply.startswith("Snack: Hummus and veg sticks") and "Reply 👍 to cook this" in reply
 
 
 def test_dinner_only_dishes_never_turn_up_for_breakfast():

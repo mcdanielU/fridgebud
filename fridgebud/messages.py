@@ -416,13 +416,13 @@ def rescue_plan(rows: list[tuple[str, str]], more: int, suggestion: Suggestion |
         lines.append(f"(+{more} more that keep longer)")
     if suggestion:
         lines.append(_idea(suggestion))
-        lines.append("Cooked it? Reply MADE · Another idea? DINNER")
+        lines += ["", PICK_FOOTER]
     return "\n".join(lines)
 
 
-def dinner_idea(suggestion: Suggestion) -> str:
-    done = "Had it?" if suggestion.meal == "snack" else "Cooked it?"
-    return _idea(suggestion) + f"\n{done} Reply MADE · Another idea? {(suggestion.meal or 'dinner').upper()}"
+def dinner_idea(suggestion: Suggestion, same_again: bool = False) -> str:
+    lead = "That's the only thing your fridge makes right now, so same again:\n" if same_again else ""
+    return lead + _idea(suggestion) + "\n\n" + PICK_FOOTER
 
 
 def marked_old(names: list[str]) -> str:

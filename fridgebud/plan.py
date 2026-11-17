@@ -48,16 +48,25 @@ def use_first(all_entries: list[Entry], today: date) -> tuple[list[tuple[str, st
     return [(e.item.name, by_when(e.days_left, today)) for e in fresh[:SHOW]], max(0, len(fresh) - SHOW)
 
 
+def shown_today(h: Household, today: date) -> list[str]:
+    """Ideas already offered today, so asking again never cycles back to one they just passed on."""
+    state = h.last_suggestion or {}
+    return list(state.get("shown") or []) if state.get("shown_on") == today.isoformat() else []
+
+
 def tonight(engine: Engine, h: Household, today: date, avoid: str | None = None, meal: str = "dinner") -> Suggestion | None:
     """Pick an idea for `meal` (dinner by default) from what's on hand, favouring whatever turns soonest, and
     remember it so MADE works."""
     # Long-keeping items count as neutral, so a recipe isn't marked down for using carrots.
     ranked = [Entry(e.item, min(e.days_left, AT_RISK_DAYS + 1), e.age) for e in entries(engine, h.id, today)]
-    pick = recipes.suggest(ranked, engine.store.active_items(h.id), h.dislikes, avoid=avoid, meal=meal,
-                           **taste.context(engine.store, h, today))
+    prior = shown_today(h, today)
+    pick = recipes.suggest(ranked, engine.store.active_items(h.id), h.dislikes, avoid=[*prior, *([avoid] if avoid else [])],
+                           meal=meal, **taste.context(engine.store, h, today))
     if pick:
         state = pick.as_state()
         state["check_ids"] = (h.last_suggestion or {}).get("check_ids", [])
+        state["shown"] = (prior + [pick.title])[-8:]
+        state["shown_on"] = today.isoformat()
         h.last_suggestion = state
         engine.store.save_household(h)
     return pick

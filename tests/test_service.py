@@ -343,7 +343,7 @@ def test_receipt_photo_gets_plan_but_no_age_question(svc):
 def test_dinner_on_demand_then_made_rescues(svc):
     onboard(svc, A, "chicken thighs, baby spinach, tortillas, cheddar")
     idea = svc.handle_message(A, "what's for dinner?", at(0, 12))[0]
-    assert idea.startswith("Tonight: ") and "Reply MADE" in idea
+    assert idea.startswith("Tonight: ") and "Reply 👍 to cook this" in idea
     another = svc.handle_message(A, "DINNER", at(0, 12, 5))[0]
     assert another.startswith("Tonight: ") and another != idea                 # a different idea second time
     done = svc.handle_message(A, "made it", at(0, 19))[0]
@@ -418,3 +418,15 @@ def test_whats_in_my_fridge_lists_everything(svc):
 def test_question_mark_alone_is_still_help(svc):
     onboard(svc, A, "milk")
     assert svc.handle_message(A, "?", at(0, 10)) == [messages.HELP]
+
+
+def test_asking_for_another_dinner_never_repeats_the_same_dish_unless_it_is_the_only_one(svc):
+    onboard(svc, A, "chicken thighs, baby spinach, tortillas, cheddar, rotisserie chicken, cooked shrimp")
+    first = svc.handle_message(A, "what's for dinner?", at(0, 12))[0]
+    seen = {first.split("\n")[0]}
+    for i in range(1, 4):
+        nxt = svc.handle_message(A, "DINNER", at(0, 12, i))[0]
+        if nxt.startswith("That's the only thing"):
+            break                                                        # honest about it, not a silent repeat
+        assert nxt.split("\n")[0] not in seen
+        seen.add(nxt.split("\n")[0])

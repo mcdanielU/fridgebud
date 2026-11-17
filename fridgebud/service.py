@@ -986,9 +986,10 @@ class Service:
             return [messages.NO_IDEA]
         if kind == "dinner":
             last = (h.last_suggestion or {}).get("recipe")
+            before = {t.lower() for t in plan.shown_today(h, today)} | ({last.lower()} if last else set())
             pick = plan.tonight(self.engine, h, today, avoid=last)
             self.store.log(h.id, now, "dinner_asked", recipe=pick.title if pick else None)
-            return [messages.dinner_idea(pick) if pick else messages.NO_IDEA]
+            return [messages.dinner_idea(pick, same_again=pick.title.lower() in before) if pick else messages.NO_IDEA]
         active = self.store.active_items(h.id)
         matched = [m for m in (self.engine._match(h, n, active) for n in names) if m]
         moved = plan.mark_old(self.engine, h, matched, today)

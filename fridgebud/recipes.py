@@ -139,6 +139,7 @@ def _best(meal: str, usable: list[Entry], on_hand: list[Item], disliked: set[str
     a daily pick). Favourites they rated 🔥 get a nudge up the order."""
     at_risk = {e.item.key: e for e in usable if e.item.key and e.item.id not in exclude}
     have = {i.key for i in on_hand if i.key}
+    skip = {avoid.lower()} if isinstance(avoid, str) else {str(a).lower() for a in (avoid or ())}
     best: tuple[float, Recipe, list[Item]] | None = None
     for recipe in BANK:
         if meal not in recipe.meals or any(d in recipe.name.lower() for d in disliked):
@@ -159,8 +160,9 @@ def _best(meal: str, usable: list[Entry], on_hand: list[Item], disliked: set[str
             score = 0.1 * len(items) - recipe.minutes / 60 - 5   # always ranks below anything that rescues food
         else:
             continue
-        if recipe.name == avoid:
-            score -= 1.5  # it was ignored yesterday; offer something different
+        if recipe.name.lower() in skip:
+            score -= 100  # they asked for another idea (or ignored it yesterday): anything else beats it, but it
+                          # is still the answer if it is the only thing their fridge can make
         if recipe.name.lower() in favourites:
             score += 0.6
         fam = familiarity(recipe, taste, favourites, history)
