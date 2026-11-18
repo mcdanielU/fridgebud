@@ -102,8 +102,14 @@ def _idea(s: Suggestion) -> str:
     uses = ", ".join(i.name for i in s.rescues[:3])
     label = _MEAL_LABELS.get(s.meal, "Tonight")
     if s.minutes is None:
-        return f"{label}: {s.title}, no cooking needed"
-    return f"{label}: {s.title}, {s.minutes} min (uses {uses})"
+        text = f"{label}: {s.title}, no cooking needed"
+    elif uses:
+        text = f"{label}: {s.title}, {s.minutes} min (uses {uses})"
+    else:
+        text = f"{label}: {s.title}, {s.minutes} min"
+    if s.ai:
+        text += "\n🧪 I wrote this one: your fridge alone didn't make a full meal. I'll add what's missing to your list."
+    return text
 
 
 PICK_FOOTER = "Reply 👍 to cook this\nReply 👎 for a different idea"

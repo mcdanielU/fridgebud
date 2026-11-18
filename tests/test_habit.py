@@ -478,3 +478,44 @@ def test_every_daily_pick_is_logged_as_training_data_with_its_outcome():
     s.handle_message(A, "👍", at(0, 16, 40))
     table = dataset.rows(s.store)
     assert len(table) == 1 and table[0]["locked"] == 1 and table[0]["swapped"] == 0
+
+
+def test_a_dish_the_fridge_covers_with_several_things_beats_one_built_on_a_single_ingredient():
+    from fridgebud import recipes
+    from fridgebud.models import Item
+    from datetime import date
+    fridge = [Item(i, 1, n, k, None, "grocery", date(2026, 11, 16)) for i, (n, k) in
+              enumerate([("rotisserie chicken", "chicken"), ("baby spinach", "spinach"), ("tomatoes", "tomatoes"),
+                         ("cucumber", "cucumber")], 1)]
+    for ask in range(6):                                              # whatever the order or taste, never single-item
+        pick = recipes.suggest([], fridge, [], any_day=True, taste={"West African": 4, "Thai": 4}, variety=0.5,
+                               avoid=["Chicken shawarma bowl"] if ask else None)
+        names = {r.name: r for r in recipes.BANK}
+        r = names[pick.title]
+        assert len(r.needs) + len(r.uses & {i.key for i in fridge}) >= 2, pick.title
+
+
+def test_when_the_dish_list_fits_the_fridge_poorly_the_ai_writes_a_proper_meal_within_a_daily_cap():
+    from tests.test_kitchen import FakeChef
+    chef = FakeChef()
+    s = Service(Engine(Store()), Config(number="+15195550000", ai_idea_daily_cap=2), chef=chef)
+    for text in ("hi", "yes", "2", "bought rotisserie chicken"):          # one ingredient: only single-ingredient dishes fit
+        s.handle_message(A, text, MON)
+    idea = s.handle_message(A, "DINNER", at(0, 12))[0]
+    assert "🧪 I wrote this one" in idea and "Jollof" in idea and "Reply 👍 to cook this" in idea
+    assert [c for c in chef.calls if isinstance(c, tuple)][0][0] == "generate"
+    state = s.store.get_household(1).last_suggestion
+    assert state["recipe"] and state.get("ai") is True                     # so 👍 and COOK work on it
+    s.handle_message(A, "DINNER", at(0, 12, 2))
+    third = s.handle_message(A, "DINNER", at(0, 12, 4))[0]                 # cap of 2 reached: back to the dish list
+    assert "🧪 I wrote this one" not in third
+    assert len(s.store.events(1, "ai_idea")) == 2
+
+
+def test_the_daily_pick_can_be_ai_written_when_nothing_in_the_list_fits():
+    from tests.test_kitchen import FakeChef
+    s = Service(Engine(Store()), Config(number="+15195550000"), chef=FakeChef())
+    for text in ("hi", "yes", "2", "bought rotisserie chicken"):
+        s.handle_message(A, text, MON)
+    pick = [t for p, t in s.tick(at(0)) if p == A]
+    assert pick and "🧪 I wrote this one" in pick[0]

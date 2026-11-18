@@ -430,3 +430,14 @@ def test_asking_for_another_dinner_never_repeats_the_same_dish_unless_it_is_the_
             break                                                        # honest about it, not a silent repeat
         assert nxt.split("\n")[0] not in seen
         seen.add(nxt.split("\n")[0])
+
+
+def test_dislike_keeps_an_ingredient_out_of_ideas_without_calling_it_tossed(svc):
+    onboard(svc, A, "rotisserie chicken, chicken thighs, baby spinach, tortillas, cheddar")
+    said = svc.handle_message(A, "dislike rotisserie chicken", at(0, 12))[0]
+    assert "no more rotisserie chicken" in said.lower()
+    for ask in ("DINNER", "DINNER", "DINNER"):
+        idea = svc.handle_message(A, ask, at(0, 12, 1))[0]
+        assert "rotisserie" not in idea.lower()                           # never offered again
+    assert any(i.name == "rotisserie chicken" for i in svc.store.active_items(1))   # still on the list, not "tossed"
+    assert not svc.store.events(1, "tossed")

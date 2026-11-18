@@ -58,6 +58,7 @@ class Config:
     receipt_hour: int = 11       # Sunday receipt goes out at this local hour
     fallback_daily_cap: int = 5  # free-form replies sent to the model per household per day
     agent_daily_cap: int = 60    # free-form messages handled by the agent per household per day
+    ai_idea_daily_cap: int = 3   # AI-written dinner ideas per household per day (when the dish list fits the fridge poorly)
     force_voice: str = ""        # 'bud' or 'plain' for everyone; empty keeps the 50/50 voice test
     checkin_hour: int = 20       # evening "how did it go?" text, local time, only after an unanswered 4:30 text
     quiet_hour: int = 21         # Bud never starts a conversation at or after this local hour
@@ -86,6 +87,7 @@ class Service:
         self.engine = engine
         engine.reward = self._made_reward
         engine.skip_today = self._skip_today
+        engine.idea_fallback = self._ai_idea
         self._noticed: dict[int, str] = {}
         self._woken: dict[int, bool] = {}
         self.store = engine.store
@@ -996,6 +998,14 @@ class Service:
             last = (h.last_suggestion or {}).get("recipe")
             before = {t.lower() for t in plan.shown_today(h, today)} | ({last.lower()} if last else set())
             pick = plan.tonight(self.engine, h, today, avoid=last)
+            if pick is None or pick.weak:
+                ai = self._ai_idea(h, "dinner", now, sorted(before))
+                if ai:
+                    pick = ai
+                    h = self.store.get_household(h.id)
+                    h.last_suggestion = dict(ai.as_state(), check_ids=(h.last_suggestion or {}).get("check_ids", []),
+                                             shown=plan.shown_today(h, today) + [ai.title], shown_on=today.isoformat())
+                    self.store.save_household(h)
             self.store.log(h.id, now, "dinner_asked", recipe=pick.title if pick else None)
             return [messages.dinner_idea(pick, same_again=pick.title.lower() in before) if pick else messages.NO_IDEA]
         active = self.store.active_items(h.id)
@@ -1419,6 +1429,33 @@ class Service:
             self.store.log(h.id, now, "recipe_declined", recipe=hit.title)
             return [messages.recipe_declined(hit.title)]
         return None  # a recipe they've already kept and now dislike: fall through to the plain dislikes list
+
+    def _ai_idea(self, h: Household, meal: str, now: datetime, shown: list[str] | None = None):
+        """The dish list fits this fridge poorly (one ingredient, or nothing): have the AI write a proper meal, using
+        some of what they have if it helps and happy to need things they don't. Capped per household per day."""
+        if self.chef is None:
+            return None
+        today = self.engine.local(h, now).date()
+        used = sum(1 for e in self.store.events(h.id, "ai_idea") if self.engine.local(h, _at(e)).date() == today)
+        if used >= self.config.ai_idea_daily_cap:
+            return None
+        items = self.store.active_items(h.id)
+        ask = (f"a {meal} idea. Build it around one or two things from their fridge only if that makes a good dish; "
+               "it is fine, even better, to need ingredients they do not have yet. "
+               + (f"Not any of these, they have seen them: {', '.join(shown)}." if shown else ""))
+        try:
+            data = self.chef.generate(ask, [i.name for i in items], h.dislikes, self._taste(h))
+        except Exception as err:
+            self.store.log(h.id, now, "chef_error", error=str(err)[:300])
+            return None
+        recipe = recipe_from_dict(data, h.id, "ai") if data else None
+        if recipe is None:
+            return None
+        saved = self.book.save(recipe, now)
+        self.book.set_current(h.id, saved.id)
+        uses = [i for i in items if any(same_food(ing.name, i.name) for ing in saved.ingredients if not ing.staple)]
+        self.store.log(h.id, now, "ai_idea", recipe=saved.title, meal=meal, uses=len(uses))
+        return recipes_mod.Suggestion(saved.title, saved.minutes, uses[:3], meal=meal, novelty=0.5, ai=True)
 
     def _new_recipe(self, h: Household, request: str, now: datetime, lead: str) -> list:
         """Have the AI write a recipe, save it labelled as AI-written, and show it."""

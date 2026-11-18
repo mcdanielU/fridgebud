@@ -124,11 +124,16 @@ class Suggestion:
     breakfast: "Suggestion | None" = None   # optional extra for fruit/dairy a lunch or dinner can't use
     meal: str = "dinner"
     novelty: float = 0.5                    # 0 = a dish they know and love, 1 = a cuisine they've never touched
+    weak: bool = False                      # the fridge covers only one ingredient of it: a last resort
+    ai: bool = False                        # written by the AI because nothing in the list fit well
 
     def as_state(self) -> dict:
         # MADE closes only the dinner's items; breakfast items stay until USED.
-        return {"recipe": self.title, "novelty": self.novelty, "item_ids": [i.id for i in self.rescues],
-                "breakfast_ids": [i.id for i in self.breakfast.rescues] if self.breakfast else []}
+        state = {"recipe": self.title, "novelty": self.novelty, "item_ids": [i.id for i in self.rescues],
+                 "breakfast_ids": [i.id for i in self.breakfast.rescues] if self.breakfast else []}
+        if self.ai:
+            state["ai"] = True
+        return state
 
 
 def _best(meal: str, usable: list[Entry], on_hand: list[Item], disliked: set[str],
@@ -137,6 +142,10 @@ def _best(meal: str, usable: list[Entry], on_hand: list[Item], disliked: set[str
           history: dict | None = None) -> Suggestion | None:
     """any_day: on a day nothing is at risk, still pick something their fridge can make (the daily habit needs
     a daily pick). Favourites they rated 🔥 get a nudge up the order."""
+    def _off(item) -> bool:   # something they told Bud to keep out of ideas (the food itself stays on their list)
+        return item.key in disliked or item.name.lower() in disliked
+    usable = [e for e in usable if not _off(e.item)]
+    on_hand = [i for i in on_hand if not _off(i)]      # a recipe can still use the chicken thighs if only the rotisserie is off
     at_risk = {e.item.key: e for e in usable if e.item.key and e.item.id not in exclude}
     have = {i.key for i in on_hand if i.key}
     skip = {avoid.lower()} if isinstance(avoid, str) else {str(a).lower() for a in (avoid or ())}
@@ -160,6 +169,11 @@ def _best(meal: str, usable: list[Entry], on_hand: list[Item], disliked: set[str
             score = 0.1 * len(items) - recipe.minutes / 60 - 5   # always ranks below anything that rescues food
         else:
             continue
+        # A dish built on one ingredient is a last resort: prefer ones the fridge covers with several things.
+        cov = len(recipe.needs) + len(recipe.uses & have)
+        score += 0.25 * min(cov - 1, 3)
+        if cov == 1:
+            score -= 1.5
         if recipe.name.lower() in skip:
             score -= 100  # they asked for another idea (or ignored it yesterday): anything else beats it, but it
                           # is still the answer if it is the only thing their fridge can make
@@ -177,11 +191,11 @@ def _best(meal: str, usable: list[Entry], on_hand: list[Item], disliked: set[str
         if fit <= 0 and recipe.cuisine not in MAINSTREAM:  # an unfamiliar cuisine leads only for the adventurous
             score -= 0.4 if variety is None else 0.8 * max(0.0, 0.75 - variety)
         if best is None or score > best[0]:
-            best = (score, recipe, items, fam)
+            best = (score, recipe, items, fam, cov)
     if best is None:
         return None
-    _, recipe, items, fam = best
-    return Suggestion(recipe.name, recipe.minutes, items, meal=meal, novelty=round(1 - fam, 2))
+    _, recipe, items, fam, cov = best
+    return Suggestion(recipe.name, recipe.minutes, items, meal=meal, novelty=round(1 - fam, 2), weak=cov <= 1)
 
 
 def familiarity(recipe: Recipe, taste: dict | None, favourites, history: dict | None) -> float:

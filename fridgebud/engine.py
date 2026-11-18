@@ -246,7 +246,7 @@ class Engine:
                 self.store.save_household(h)
                 self.store.log(h.id, now, "nudge_skipped", reason=reason)
                 continue
-            text = self.compose_nudge(h, local.date())
+            text = self.compose_nudge(h, local.date(), now)
             h = self.store.get_household(h.id)  # compose_nudge saved the suggestion
             h.last_nudge_on = local.date()
             self.store.save_household(h)
@@ -278,12 +278,18 @@ class Engine:
             on_hand=len(self.store.active_items(h.id)), at_risk=len(self.watchlist(h, local.date())),
             cadence=p.get("cadence"), main_meal=p.get("main_meal"))
 
-    def compose_nudge(self, h: Household, today: date) -> str | None:
+    idea_fallback = None   # set by the service: writes an AI idea when nothing in the dish list fits the fridge well
+
+    def compose_nudge(self, h: Household, today: date, now: datetime | None = None) -> str | None:
         wl = self.watchlist(h, today)
         last = (h.last_suggestion or {}).get("recipe")
         meal = "lunch" if (h.persona or {}).get("main_meal") == "lunch" else "dinner"   # their main meal's dishes
         pick = recipes.suggest(wl, self.store.active_items(h.id), h.dislikes, avoid=last, meal=meal, any_day=True,
                                **taste.context(self.store, h, today))
+        if (pick is None or pick.weak) and self.idea_fallback and now is not None:
+            alt = self.idea_fallback(h, meal, now, [last] if last else [])
+            if alt:
+                pick = alt
         state = pick.as_state() if pick else {}
         state["check_ids"] = [e.item.id for e in wl if e.past_window]
         h.last_suggestion = state
