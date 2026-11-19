@@ -219,8 +219,10 @@ def test_snacks_are_snacks():
 def test_dinner_only_dishes_never_turn_up_for_breakfast():
     svc = fridge_with("chicken thighs", "broccoli", "peppers")         # sheet-pan dinner territory, nothing breakfasty
     out = svc.handle_message(A, "breakfast", at(0, 8))
-    assert out[0].startswith("Nothing in your fridge fits breakfast yet")
-    assert ("generate", "a breakfast idea") in svc.chef.calls          # written for breakfast instead
+    assert out[0].startswith("🍳 Breakfast: ") and "🧪 My own idea" in out[0] and "COOK for the steps" in out[0]
+    assert len(out) == 1 and out[0].photo["inline"]                    # one short message with the picture, not a full card
+    assert any(c[0] == "generate" and c[1].startswith("a breakfast idea") for c in svc.chef.calls)
+    assert svc.handle_message(A, "cook", at(0, 8, 5))                  # the full recipe is one word away
 
 
 def test_a_lunch_persons_daily_idea_is_a_real_lunch_dish():

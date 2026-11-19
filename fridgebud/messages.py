@@ -429,6 +429,11 @@ def rescue_plan(rows: list[tuple[str, str]], more: int, suggestion: Suggestion |
     return "\n".join(lines)
 
 
+def written_idea(suggestion: Suggestion) -> str:
+    """An AI-written idea for a meal their fridge can't make yet: the same two lines, then the way in."""
+    return _idea(suggestion) + "\n\n👉 COOK for the steps"
+
+
 def dinner_idea(suggestion: Suggestion, same_again: bool = False) -> str:
     lead = "That's the only thing your fridge makes right now, so same again:\n" if same_again else ""
     return lead + _idea(suggestion) + "\n\n" + PICK_FOOTER

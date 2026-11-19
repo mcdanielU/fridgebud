@@ -997,6 +997,9 @@ class Service:
             if pick and pick.meal == meal:
                 return [self._with_dish_photo(messages.dinner_idea(pick), pick.title)]
             if self.chef is not None:
+                ai = self._ai_idea(h, meal, now, [last] if last else [])   # same short idea + photo, full recipe on COOK
+                if ai:
+                    return [self._with_dish_photo(messages.written_idea(ai), ai.title)]
                 return self._new_recipe(h, f"a {meal} idea", now, f"Nothing in your fridge fits {meal} yet, so here's one I wrote.")
             return [messages.NO_IDEA]
         if kind == "dinner":
