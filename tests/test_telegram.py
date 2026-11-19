@@ -168,3 +168,30 @@ def test_old_idea_reaction_gets_a_note_and_no_taste_change():
     handle_update(app, {"message_reaction": {"chat": {"id": CHAT, "type": "private"}, "message_id": 50,
                                              "new_reaction": [{"type": "emoji", "emoji": "👎"}]}})
     assert tg.texts()[before:] == ["That one's from earlier 🙂 Tap 👍 or 👎 on my newest idea and I'll use it."]
+
+
+class _NoAgent:
+    def run(self, *a, **k):
+        raise AssertionError("a reaction must never reach the chat agent")
+
+
+def test_thumbs_up_on_an_on_demand_idea_locks_it_and_counts_once():
+    app, tg = make_app()
+    for text in ("/start", "yes", "1", "bought ground beef, tortillas, cooked shrimp"):
+        handle_update(app, msg(text))
+    handle_update(app, msg("lunch"))
+    idea = tg.texts()[-1]
+    title = idea.split("\n")[0].split(": ", 1)[1]
+    app.sender._remember(f"tg:{CHAT}", {"message_id": 60}, idea)
+    app.service.agent = _NoAgent()
+    tap = {"message_reaction": {"chat": {"id": CHAT, "type": "private"}, "message_id": 60,
+                                "new_reaction": [{"type": "emoji", "emoji": "👍"}]}}
+    before = len(tg.texts())
+    handle_update(app, tap)
+    assert len(tg.texts()) == before + 1 and tg.texts()[-1].startswith(f"Nice, {title} it is 👍")
+    handle_update(app, tap)                                        # took it off, tapped again: no repeat
+    assert len(tg.texts()) == before + 1
+    unknown = {"message_reaction": {"chat": {"id": CHAT, "type": "private"}, "message_id": 999,
+                                    "new_reaction": [{"type": "emoji", "emoji": "👍"}]}}
+    handle_update(app, unknown)                                    # a message Bud can't place: silence, not a guess
+    assert len(tg.texts()) == before + 1

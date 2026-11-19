@@ -1306,3 +1306,10 @@ def test_asking_for_dinner_or_swapping_also_comes_with_the_picture():
     assert reply.photo["inline"] and "👍 cook it" in reply
     lunch = svc.handle_message(A, "lunch", at(0, 12))[0]
     assert getattr(lunch, "photo", None) and lunch.photo["inline"]
+
+
+def test_the_picture_shows_the_food_the_idea_uses():
+    svc = make()
+    reply = svc.handle_message(A, "DINNER", at(0, 18))[0]
+    used = reply.split("uses your ")[1].split(",")[0].split("\n")[0]
+    assert f"made with {used}" in reply.photo["prompt"] or used.lower() in reply.split("\n")[0].lower()

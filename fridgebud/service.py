@@ -97,6 +97,7 @@ class Service:
         self.audio_cache = AudioCache(self.store)
         self.photo_cache = PhotoCache(self.store)
         self._replying: dict[str, tuple[float, str]] = {}
+        self._taps: dict[str, str] = {}     # a reaction is on its way in: the text of the message it was tapped on
         self.config = config or Config()
         self.interpreter = interpreter
         self.chef = chef            # chef.Chef: recipes, matching, narration (needs an API key)
@@ -244,11 +245,15 @@ class Service:
             if picked is not None:
                 self.store.log(h.id, now, "inbound", text=text, media=0)
                 return [self._say(prof, s) for s in picked]
+        tapped_on = self._taps.pop(sender or phone, None)
         if was_in and not has_media:
             looped = self._loop_reply(h, prof, text, now)
             if looped is not None:
                 self.store.log(h.id, now, "inbound", text=text, media=0)
                 return [self._say(prof, s) for s in looped]
+        if tapped_on is not None:   # a tap means what it's on, and is never chat: don't let the agent guess at it
+            self.store.log(h.id, now, "inbound", text=text, media=0) if h else None
+            return self._tap_idea(h, text.strip(), tapped_on, now) if was_in else []
         if was_in and not has_media and (intent.kind == "unknown" or question or (asked and asked[0] in ALWAYS)):
             special = self._answer(h, prof, text, now)
             if special is not None:
@@ -781,7 +786,7 @@ class Service:
             pick = self._meal_pick(h, meal, today)
             self.store.log(h.id, now, "meal_text", meal=meal, day=today.isoformat(), sent=bool(pick))
             if pick:
-                text = self._with_dish_photo(self._say(prof, messages.meal_idea(pick), seed=h.id + today.toordinal()), pick.title)
+                text = self._with_dish_photo(self._say(prof, messages.meal_idea(pick), seed=h.id + today.toordinal()), pick.title, self._main(pick))
                 out += [(ph, text) for ph in self._recipients(h)]
         # the one-time offers: breakfast from day 3, lunch from day 5, one a day at most, never on top of anything open
         if not prof.consented_at or prof.awaiting:
@@ -805,7 +810,7 @@ class Service:
             prof.awaiting = f"offer_{meal}"
             self.accounts.save(prof)
             self.store.log(h.id, now, "meal_offer", meal=meal, day=today.isoformat())
-            text = self._with_dish_photo(self._say(prof, messages.meal_offer(meal, pick), seed=h.id + today.toordinal()), pick.title)
+            text = self._with_dish_photo(self._say(prof, messages.meal_offer(meal, pick), seed=h.id + today.toordinal()), pick.title, self._main(pick))
             out += [(ph, text) for ph in self._recipients(h)]
             return
 
@@ -953,6 +958,36 @@ class Service:
             title = ((h.last_suggestion or {}).get("recipe") if h else None) or ""
             return bool(title) and title.lower() in text.lower()
 
+    def note_tap(self, phone: str, message_text: str | None) -> None:
+        """A reaction is about to come in as a message: remember which Bud message it was tapped on."""
+        with self.lock:
+            self._taps[phone] = message_text or ""
+
+    _IDEA_LINE = re.compile(r"^\S+\s+(Tonight|Breakfast|Brunch|Lunch|Snack): (.+)$")
+
+    def _tap_idea(self, h: Household, emoji: str, message_text: str, now: datetime) -> list:
+        """👍 or 👎 tapped on an idea the quick-reply rules didn't cover (an idea asked for on demand, say):
+        lock in or swap exactly that dish. Anything else tapped is acknowledged silently."""
+        first = (message_text or "").split("\n")[0]
+        m = self._IDEA_LINE.match(first)
+        if not m or messages.PICK_MARK not in message_text or emoji not in ("👍", "👎"):
+            return []
+        label, title = m.groups()
+        meal = "dinner" if label == "Tonight" else label.lower()
+        today = self.engine.local(h, now).date()
+        if emoji == "👍":
+            if any(self._day(h, e) == today and e["payload"].get("recipe") == title for e in self.store.events(h.id, "locked")):
+                return []                                            # already locked in: once is enough
+            state = dict(h.last_suggestion or {})
+            if state.get("recipe") != title:
+                state.update(recipe=title, item_ids=[])
+                h.last_suggestion = state
+                self.store.save_household(h)
+            self.store.log(h.id, now, "locked", recipe=title, meal=meal)
+            return [messages.locked_in(title, meal)]
+        self.store.log(h.id, now, "pick_swapped", recipe=title)
+        return self._command(self.store.get_household(h.id), meal, now)
+
     def focus_recipe(self, phone: str, title: str) -> bool:
         """They replied to one of Bud's recipe messages: make that recipe the one "this" and "it" mean."""
         with self.lock:
@@ -995,11 +1030,11 @@ class Service:
             pick = plan.tonight(self.engine, h, today, avoid=last, meal=meal)
             self.store.log(h.id, now, "meal_asked", meal=meal, recipe=pick.title if pick else None)
             if pick and pick.meal == meal:
-                return [self._with_dish_photo(messages.dinner_idea(pick), pick.title)]
+                return [self._with_dish_photo(messages.dinner_idea(pick), pick.title, self._main(pick))]
             if self.chef is not None:
                 ai = self._ai_idea(h, meal, now, [last] if last else [])   # same short idea + photo, full recipe on COOK
                 if ai:
-                    return [self._with_dish_photo(messages.written_idea(ai), ai.title)]
+                    return [self._with_dish_photo(messages.written_idea(ai), ai.title, self._main(ai))]
                 return self._new_recipe(h, f"a {meal} idea", now, f"Nothing in your fridge fits {meal} yet, so here's one I wrote.")
             return [messages.NO_IDEA]
         if kind == "dinner":
@@ -1017,7 +1052,7 @@ class Service:
             self.store.log(h.id, now, "dinner_asked", recipe=pick.title if pick else None)
             if not pick:
                 return [messages.NO_IDEA]
-            return [self._with_dish_photo(messages.dinner_idea(pick, same_again=pick.title.lower() in before), pick.title)]
+            return [self._with_dish_photo(messages.dinner_idea(pick, same_again=pick.title.lower() in before), pick.title, self._main(pick))]
         active = self.store.active_items(h.id)
         matched = [m for m in (self.engine._match(h, n, active) for n in names) if m]
         moved = plan.mark_old(self.engine, h, matched, today)
@@ -1283,7 +1318,10 @@ class Service:
                     extras = [x for x in (self._tip(h, prof, now),) if x]
                 for extra in extras:
                     text += "\n\n" + extra
-                text = self._with_dish_photo(text, (self.store.get_household(h.id).last_suggestion or {}).get("recipe"))
+                state = self.store.get_household(h.id).last_suggestion or {}
+                ids = state.get("item_ids") or []
+                main = next((i.name for i in self.store.active_items(h.id) if i.id in ids), None)
+                text = self._with_dish_photo(text, state.get("recipe"), main)
                 out += [(p, text) for p in self._recipients(h)]
             for h in self.store.all_households():
                 if h.opted_in and not (h.persona or {}).get("snoozed"):   # stepped back: nothing until they write
@@ -1418,12 +1456,18 @@ class Service:
                                     staples, self._as_of(h, now), lead)
         return messages.Card(card, photo=self._picture(r))
 
-    def _with_dish_photo(self, text: str, title: str | None):
+    @staticmethod
+    def _main(s) -> str | None:
+        """The food the idea is built on, so its picture shows shrimp when the text says shrimp."""
+        return s.rescues[0].name if getattr(s, "rescues", None) else None
+
+    def _with_dish_photo(self, text: str, title: str | None, main: str | None = None):
         """The daily idea arrives as a picture of the dish with the short text as its caption: one message, food first.
         Each dish is drawn once and reused. If there's no picture (no key, daily cap, an error) the text goes alone."""
         if not title or not self.config.dish_photos or len(text) > 1000:   # Telegram captions stop at 1024 characters
             return text
-        return messages.Card(text, photo={"prompt": dish_prompt(title), "key": dish_key(title), "inline": True})
+        named = f"{title} made with {main}" if main and main.lower() not in title.lower() else title
+        return messages.Card(text, photo={"prompt": dish_prompt(named), "key": dish_key(named), "inline": True})
 
     @staticmethod
     def _picture(r: Recipe) -> dict | None:

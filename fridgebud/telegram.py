@@ -310,11 +310,22 @@ def handle_update(app: App, update: dict) -> None:
     who, text, media = parsed
     react = update.get("message_reaction")
     if react:
+        key = (who, react.get("message_id", 0), text)
+        tapped = getattr(app, "_tapped", None)
+        if tapped is None:
+            tapped = app._tapped = OrderedDict()
+        if key in tapped:
+            return                                   # took it off and put it back: it already counted once
+        tapped[key] = True
+        while len(tapped) > 1000:
+            tapped.popitem(last=False)
         note = reaction_applies(app, who, react.get("message_id", 0))
         if note is not None:
             if note:
                 app.send(who, note)
             return
+        if hasattr(app.service, "note_tap") and hasattr(app.sender, "sent_text"):
+            app.service.note_tap(who, app.sender.sent_text(who, react.get("message_id", 0)))
     if wants_stats(who, text, media, getattr(app, "owners", set())):
         app.send(who, stats_text(app))
         return
