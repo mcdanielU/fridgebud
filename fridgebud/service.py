@@ -1789,6 +1789,10 @@ class Service:
         quoted = self._quoted(h.phone)
         if quoted:
             context += f' They are replying to this message of yours: "{quoted}"'
+        if any(now - _at(e) <= timedelta(minutes=15) for e in self.store.events(h.id, "photo_unreadable")):
+            context += (" Their latest photo showed no readable food, and they may be asking about it. Open by saying plainly"
+                        " that no food showed in that photo, so you are going from the fridge list you already have (say when it"
+                        " was last updated), then answer. Never imply the photo showed anything.")
         try:
             final, used = self.agent.run(text, execute, context, history=self._recent_turns(h, now))
         except Exception as err:  # a model outage must never break the conversation

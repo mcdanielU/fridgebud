@@ -126,6 +126,7 @@ class Engine:
             except Exception as err:  # a failed photo must never break the conversation
                 self.store.log(h.id, now, "capture_error", error=str(err)[:300])
         if not captured:
+            self.store.log(h.id, now, "photo_unreadable")   # lets a follow-up question say so instead of going quiet about it
             return messages.PHOTO_UNREADABLE
         sure = [c for c in captured if c.confident]
         unsure = [c for c in captured if not c.confident]
