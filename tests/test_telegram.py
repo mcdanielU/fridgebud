@@ -85,7 +85,7 @@ def test_daily_nudge_goes_to_the_chat():
         handle_update(app, msg(text))
     app.clock = lambda: NOW.replace(hour=16, minute=30)
     assert app.tick() == 1
-    assert tg.texts()[-1].startswith("Use soon: ground beef")
+    assert tg.texts()[-1].startswith("🍽️ Tonight: ")
 
 
 def test_groups_stickers_and_edits_are_ignored():
@@ -146,8 +146,8 @@ class _App:
 def test_a_reaction_means_the_message_it_is_tapped_on():
     from fridgebud.telegram import OLDER_IDEA, reaction_applies
     app = _App(current="Tacos")
-    pick_now = "Tonight: Tacos, 20 min (uses chicken)\n\nReply 👍 to cook this\nReply 👎 for a different idea"
-    pick_old = "Tonight: Thai basil stir-fry, 15 min (uses shrimp)\n\nReply 👍 to cook this\nReply 👎 for a different idea"
+    pick_now = "Tonight: Tacos, 20 min (uses chicken)\n\n👍 cook it\n👎 another idea"
+    pick_old = "Tonight: Thai basil stir-fry, 15 min (uses shrimp)\n\n👍 cook it\n👎 another idea"
     card = "📖 Jollof rice\nSteps: ..."
     chat = "I couldn't find that, try LIST."
     for mid, text in ((1, pick_now), (2, pick_old), (3, card), (4, chat)):
@@ -163,7 +163,7 @@ def test_old_idea_reaction_gets_a_note_and_no_taste_change():
     app, tg = make_app()
     for text in ("/start", "yes", "1", "bought ground beef, tortillas"):
         handle_update(app, msg(text))
-    app.sender._remember(f"tg:{CHAT}", {"message_id": 50}, "Tonight: Old dish, 10 min (uses beef)\n\nReply 👍 to cook this\nReply 👎 for a different idea")
+    app.sender._remember(f"tg:{CHAT}", {"message_id": 50}, "Tonight: Old dish, 10 min (uses beef)\n\n👍 cook it\n👎 another idea")
     before = len(tg.texts())
     handle_update(app, {"message_reaction": {"chat": {"id": CHAT, "type": "private"}, "message_id": 50,
                                              "new_reaction": [{"type": "emoji", "emoji": "👎"}]}})

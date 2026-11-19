@@ -66,7 +66,11 @@ class App:
     # sending ----------------------------------------------------------
     def send(self, phone: str, text) -> None:
         photo = getattr(text, "photo", None)
-        if photo and hasattr(self.sender, "send_photo"):
+        if photo and photo.get("inline") and hasattr(self.sender, "send_photo"):
+            if self._send_photo(phone, dict(photo, caption=str(text))):
+                return                              # the text rode along as the picture's caption
+            text = str(text)                        # no picture today: just the text
+        elif photo and hasattr(self.sender, "send_photo"):
             self._send_photo(phone, photo)          # the picture first, then the card under it
         try:
             if isinstance(text, audio.Audio):
@@ -97,33 +101,33 @@ class App:
             with self.service.lock:
                 self.service.store.log(None, self.clock(), "send_error", phone=phone, error=str(err)[:300])
 
-    def _send_photo(self, phone: str, photo: dict) -> None:
-        """Never lets a picture problem stop the recipe itself from arriving."""
+    def _send_photo(self, phone: str, photo: dict) -> bool:
+        """Never lets a picture problem stop the recipe itself from arriving. True if a picture went out."""
         caption = photo.get("caption", "")
         try:
             if photo.get("url"):
                 self.sender.send_photo_ref(phone, photo["url"], caption)
-                return
+                return True
             key, cache = photo.get("key"), getattr(self.service, "photo_cache", None)
             if not (key and cache):
-                return
+                return False
             with self.service.lock:
                 file_id = cache.file_id(key)
             if file_id:
                 try:
                     self.sender.send_photo_ref(phone, file_id, caption)
-                    return
+                    return True
                 except Exception:
                     with self.service.lock:
                         cache.save(key, None, self.clock())
             imager = getattr(self, "imager", None)
             if imager is None:
-                return
+                return False
             with self.service.lock:
                 today = self.clock().date().isoformat()
                 made = sum(1 for e in self.service.store.events(type_="image_made") if e["at"][:10] == today)
             if made >= imager.daily_cap:
-                return
+                return False
             if hasattr(self.sender, "typing"):
                 self.sender.typing(phone, "upload_photo")
             data, mime = imager.draw(photo["prompt"])
@@ -131,9 +135,11 @@ class App:
             with self.service.lock:
                 cache.save(key, file_id, self.clock())
                 self.service.store.log(None, self.clock(), "image_made", phone=phone)
+            return True
         except Exception as err:
             with self.service.lock:
                 self.service.store.log(None, self.clock(), "photo_error", phone=phone, error=str(err)[:300])
+            return False
 
     def _show_recording(self, phone: str, done: threading.Event) -> None:
         while True:

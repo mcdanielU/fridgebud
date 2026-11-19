@@ -181,6 +181,7 @@ class TelegramSender:
             raise TelegramError(f"{to} is not a Telegram chat")
         ext = "jpg" if "jpeg" in mime else "png"
         sent = self.upload("sendPhoto", {"chat_id": to[len(PREFIX):], "caption": caption[:1000]}, f"dish.{ext}", data, mime) or {}
+        self._remember(to, sent, caption)          # a 👍 on the picture counts like one on the text
         sizes = sent.get("photo") if isinstance(sent, dict) else None
         return sizes[-1].get("file_id") if sizes else None
 
@@ -188,7 +189,7 @@ class TelegramSender:
         """A picture Telegram can fetch itself (an https URL) or already has (a file_id)."""
         if not to.startswith(PREFIX):
             raise TelegramError(f"{to} is not a Telegram chat")
-        self.call("sendPhoto", {"chat_id": to[len(PREFIX):], "photo": ref, "caption": caption[:1000]}, 30)
+        self._remember(to, self.call("sendPhoto", {"chat_id": to[len(PREFIX):], "photo": ref, "caption": caption[:1000]}, 30), caption)
 
     def fetch_media(self, file_id: str, max_bytes: int = MAX_PHOTO_BYTES) -> bytes:
         info = self.call("getFile", {"file_id": file_id}, 20)   # Telegram itself refuses files over 20 MB ("file is too big")
@@ -296,7 +297,7 @@ def reaction_applies(app: App, who: str, message_id: int) -> str | None:
         if hasattr(app.service, "focus_recipe"):
             app.service.focus_recipe(who, title)
         return None
-    if "Reply 👍 to cook this" in text:
+    if messages.PICK_MARK in text:
         current = getattr(app.service, "is_current_pick", None)
         return None if current is None or current(who, text) else OLDER_IDEA
     return ""     # some other message: ignore quietly

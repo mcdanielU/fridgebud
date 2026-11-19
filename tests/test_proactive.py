@@ -94,10 +94,21 @@ def test_evening_checkin_asks_once_after_an_unanswered_430_text(svc):
     assert to(svc.tick(at(2)), A)                                 # ...and the next day carries on as normal
 
 
+def test_off_duty_tonight_means_no_how_was_dinner(svc):
+    onboard(svc, A)
+    assert to(svc.tick(at(0)), A)                                 # the 4:30 pick went out
+    reply = svc.handle_message(A, "Skip recipe for tonight", at(0, 18, 42))
+    assert reply[0].startswith("Night off")
+    assert to(svc.tick(at(0, 20, 0)), A) == []                    # no "How was dinner?" at 8 PM
+    assert to(svc.tick(at(1)), A)                                 # tomorrow carries on as normal
+    svc.handle_message(A, "I'm off duty tonight", at(1, 18, 43))
+    assert to(svc.tick(at(1, 20, 0)), A) == []
+
+
 def test_a_late_430_text_does_not_get_a_checkin_on_its_heels(svc):
     onboard(svc, A)
     late = to(svc.tick(at(0, 20, 0)), A)                          # server was down at 4:30; catches up at 8 PM
-    assert len(late) == 1 and late[0].startswith("Use soon")
+    assert len(late) == 1 and late[0].startswith("🍽️ Tonight")
     assert to(svc.tick(at(0, 20, 45)), A) == []                   # no check-in 45 minutes later
 
 
@@ -134,7 +145,7 @@ def test_old_list_rides_on_the_430_text_when_there_is_one(svc):
     svc.store.log(1, at(-10), "capture", source="photo")          # pretend the last photo was 10 days ago
     svc.store.db.execute("DELETE FROM events WHERE type = 'capture' AND at > ?", (at(-5).isoformat(),))
     text = to(svc.tick(at(0)), A)
-    assert len(text) == 1 and text[0].startswith("Use soon") and "P.S. Your fridge list is 10 days old" in text[0]
+    assert len(text) == 1 and text[0].startswith("🍽️ Tonight") and "P.S. Your fridge list is 10 days old" in text[0]
 
 
 def test_empty_list_gets_a_standalone_ask_after_three_days(svc):

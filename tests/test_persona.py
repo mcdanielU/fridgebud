@@ -61,8 +61,8 @@ def test_lunch_people_get_lunch_ideas_before_lunch():
     svc = make()
     svc.set_persona(svc.store.get_household_by_phone(A), LUNCH_LOVER, at(0, 10))
     sent = [t for p, t in svc.tick(at(0, 11, 0)) if p == A]
-    assert sent and "For lunch: " in sent[0] and "Tonight: " not in sent[0]
-    assert not [t for p, t in svc.tick(at(0, 16, 30)) if p == A and t.startswith("Use soon")]   # not again at 4:30
+    assert sent and "Lunch: " in sent[0] and "Tonight: " not in sent[0]
+    assert not [t for p, t in svc.tick(at(0, 16, 30)) if p == A and t.startswith("🍽️ Tonight")]   # not again at 4:30
 
 
 def test_breakfast_and_unknown_times_keep_the_usual_time():
@@ -106,7 +106,7 @@ def test_a_spoken_request_is_answered_like_a_typed_one():
     svc = make(watcher)
     sender = VoiceSender()
     App(svc, sender, clock=lambda: at(0, 17)).inbound(A, "", [("v1", "audio/ogg")])
-    assert sender.sent[-1].startswith("Tonight: ")
+    assert sender.sent[-1].startswith("🍽️ Tonight: ")
 
 
 def test_voice_notes_without_a_listener_say_how_to_type_it():
@@ -184,8 +184,8 @@ BY_NAME = {r.name: r for r in recipes.BANK}
 
 
 def _idea_name(text, label):
-    line = next(l for l in text.splitlines() if l.startswith(label + ": "))
-    return line[len(label) + 2:].split(",")[0]
+    line = next(l for l in text.splitlines() if f" {label}: " in l)
+    return line.split(f" {label}: ", 1)[1]
 
 
 def fridge_with(*food):
@@ -202,18 +202,18 @@ def test_every_dish_says_which_meals_it_suits():
 
 
 @pytest.mark.parametrize("ask, label, meal", [("breakfast", "Breakfast", "breakfast"), ("brunch ideas", "Brunch", "brunch"),
-                                              ("what's for lunch?", "For lunch", "lunch")])
+                                              ("what's for lunch?", "Lunch", "lunch")])
 def test_asking_for_a_meal_gets_a_dish_for_that_meal(ask, label, meal):
     svc = fridge_with("eggs", "bread", "baby spinach", "chicken thighs", "tomatoes", "leaf lettuce")
     reply = svc.handle_message(A, ask, at(0, 9))[0]
     assert meal in BY_NAME[_idea_name(reply, label)].meals
-    assert "Reply 👍 to cook this" in reply and "Reply 👎 for a different idea" in reply
+    assert "👍 cook it" in reply and "👎 another idea" in reply
 
 
 def test_snacks_are_snacks():
     svc = fridge_with("hummus", "carrots", "chicken thighs")
     reply = svc.handle_message(A, "something to snack on", at(0, 15))[0]
-    assert reply.startswith("Snack: Hummus and veg sticks") and "Reply 👍 to cook this" in reply
+    assert reply.startswith("🍎 Snack: Hummus and veg sticks") and "👍 cook it" in reply
 
 
 def test_dinner_only_dishes_never_turn_up_for_breakfast():
@@ -227,7 +227,7 @@ def test_a_lunch_persons_daily_idea_is_a_real_lunch_dish():
     svc = fridge_with("baby spinach", "chicken thighs", "leaf lettuce", "tomatoes", "bread", "deli meat")
     svc.set_persona(svc.store.get_household_by_phone(A), LUNCH_LOVER, at(0, 9))
     text = next(t for p, t in svc.tick(at(0, 11, 0)) if p == A)
-    assert "lunch" in BY_NAME[_idea_name(text, "For lunch")].meals and "Tonight: " not in text
+    assert "lunch" in BY_NAME[_idea_name(text, "Lunch")].meals and "Tonight: " not in text
 
 
 def test_brunch_is_part_of_the_persona():

@@ -119,7 +119,7 @@ def test_past_window_items_are_never_cooked_with(engine):
     pick = recipes.suggest(wl, engine.store.active_items(h.id), [])
     assert pick is None or all(i.key != "chicken" for i in pick.rescues)
     text = engine.compose_nudge(h, day4)
-    assert "Worth checking: chicken thighs" in text
+    assert "Still good? chicken thighs" in text
     assert "safe" not in text.lower()
 
 
@@ -142,7 +142,7 @@ def test_quiet_day_still_gets_a_pick_if_the_fridge_can_make_one(engine):
     signed_up(engine, "ground beef, tortillas")
     engine.store.db.execute("UPDATE items SET added_on = ?", (at(0).date().isoformat(),))
     text = engine.due_nudges(at(0))[0][1]
-    assert "Tacos" in text and "Reply 👍 to cook this\nReply 👎 for a different idea" in text
+    assert "Tacos" in text and "👍 cook it\n👎 another idea" in text
 
 
 def test_no_text_when_nothing_at_risk_and_nothing_to_make(engine):

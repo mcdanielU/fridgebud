@@ -21,6 +21,11 @@ _KEYWORDS = (
         r"^what(?:'s| is|s)? for (breakfast|brunch|lunch)(?: today| tomorrow)?" + _X + "|"
         r"^what (?:can|should|do) (?:i|we) (?:have|eat|make|cook) for (breakfast|brunch|lunch|a snack)(?: today| tomorrow)?" + _X + "|"
         r"^(?:something|anything) (?:to |i can |we can )?(snack) on" + _X, re.I)),
+    ("off", re.compile(
+        r"^(?:(?:please |pls )?skip(?: (?:it|this|that|tonight|dinner|the recipe|recipe|tonight'?s (?:recipe|dinner|idea)|cooking))?"
+        r"(?: (?:for )?tonight)?|(?:i'?m |we'?re |i am |we are )?off(?: duty)?(?: tonight)?|night off|"
+        r"(?:i'?m |we'?re |i am |we are )?(?:not cooking|eating out|ordering (?:in|out)|getting takeout|having takeout)(?: tonight)?|"
+        r"no cooking(?: tonight)?|not tonight)" + _X, re.I)),
     ("dinner", re.compile(
         r"^(?:dinner|supper|tonight|idea|ideas|another|next|"
         r"what(?:'s| is|s) for (?:dinner|supper)|what (?:can|should|do) (?:i|we) (?:make|cook|eat)(?: tonight| for dinner)?|"

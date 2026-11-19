@@ -271,7 +271,7 @@ def test_cook_shop_and_made_flow():
 
 def test_cook_without_a_recipe_falls_back_to_a_dinner_idea():
     svc = make()
-    assert svc.handle_message(A, "cook", at(0, 13))[0].startswith("Tonight: ")
+    assert svc.handle_message(A, "cook", at(0, 13))[0].startswith("🍽️ Tonight: ")
     assert svc.handle_message(A, "audio", at(0, 13)) == [messages.NO_CURRENT]
 
 
@@ -316,8 +316,8 @@ def test_daily_text_points_at_a_saved_recipe_that_uses_what_is_turning():
     svc.handle_message(A, "https://example.com/jollof", at(0, 12))
     svc.handle_message(A, "old tomatoes", at(0, 13))
     text = svc.tick(at(0))[0][1]
-    assert "⭐ Or one of your saved recipes: Party Jollof Rice\n(uses your tomatoes)" in text
-    assert text.rstrip().endswith("Reply 👍 to cook this\nReply 2 for the Party Jollof Rice\nReply 👎 for a different idea")
+    assert "2️⃣ your saved Party Jollof Rice ⭐" in text
+    assert text.rstrip().endswith("👍 cook it\n2️⃣ your saved Party Jollof Rice ⭐\n👎 another idea")
     card = svc.handle_message(A, "2", at(0, 16, 40))[0]                  # one character instead of the whole title
     assert "📖 Party Jollof Rice" in card and svc.store.events(1, "locked")
 
@@ -327,7 +327,7 @@ def test_everyone_gets_bud_when_forced():
     svc = make(force_voice="bud")                                   # household 1 would be 'plain' in the 50/50 test
     assert svc.accounts.get(1).voice == "plain"
     assert svc.handle_message(A, "do I have eggs?", at(0, 12))[0].startswith("I don't have eggs")
-    assert svc.handle_message(A, "dinner", at(0, 12))[0].startswith("Tonight: ")      # no extra opener line
+    assert svc.handle_message(A, "dinner", at(0, 12))[0].startswith("🍽️ Tonight: ")      # no extra opener line
     missed = svc.handle_message(A, "blorp zzz", at(0, 12))[0]
     assert "didn't catch that" in missed and len(missed) < 140                       # short, no help dump
     assert svc.handle_message(A, "help", at(0, 12)) == [messages.HELP]                # HELP itself stays exact
@@ -972,6 +972,18 @@ def test_a_telegram_reply_shows_bud_which_message_it_answers():
     assert 'replying to this message of yours: "At risk this week:' in seen[0]["messages"][-1]["content"]
 
 
+def test_a_question_after_a_photo_with_no_food_says_so_first():
+    transport, seen = scripted([{"type": "text", "text": "No food in that photo, so going from your last list."}],
+                               [{"type": "text", "text": "Hi!"}])
+    svc = make(agent=Agent("k", transport=transport))
+    svc.handle_message(A, "chicken thighs, pasta", at(0, 9))
+    assert svc.handle_message(A, "", at(0, 14), captured=[], has_media=True) == [messages.PHOTO_UNREADABLE]
+    svc.handle_message(A, "Can I make any food with this recipe", at(0, 14, 1))
+    assert "showed no readable food" in seen[-1]["messages"][-1]["content"]
+    svc.handle_message(A, "hey bud", at(0, 15))                                        # 59 minutes later: forgotten
+    assert "showed no readable food" not in seen[-1]["messages"][-1]["content"]
+
+
 # shorter, and never silent; the list goes wherever their notes live -----------
 import json as _json
 import threading as _threading
@@ -1263,3 +1275,34 @@ def test_asking_for_saved_recipes_is_never_read_as_a_dish(ask):
 def test_question_shaped_text_is_not_a_dish_name():
     from fridgebud.commands import service_command
     assert service_command("what are the best recipes") != ("recipe", ["what are the best"])
+
+
+# the daily idea arrives as a picture of the dish, with the short text as its caption -------------
+def test_daily_idea_is_one_message_picture_first():
+    svc = make()
+    text = svc.tick(at(0))[0][1]
+    assert text.photo["inline"] and "No text" in text.photo["prompt"]
+    sender, imager = PhotoSender(), FakeImager()
+    app = App(svc, sender)
+    app.imager = imager
+    app.send(A, text)
+    assert sender.out == [("upload", b"PNG", str(text))]                 # one message: the dish, the idea under it
+    assert len(str(text)) < 1000 and str(text).count("\n") <= 8        # short enough to read tired
+
+
+def test_no_picture_means_the_idea_still_arrives_as_text():
+    svc = make()
+    text = svc.tick(at(0))[0][1]
+    sender = PhotoSender()
+    app = App(svc, sender)
+    app.imager = FakeImager(fail=True)
+    app.send(A, text)
+    assert sender.out == [("text", str(text))]
+
+
+def test_asking_for_dinner_or_swapping_also_comes_with_the_picture():
+    svc = make()
+    reply = svc.handle_message(A, "DINNER", at(0, 18))[0]
+    assert reply.photo["inline"] and "👍 cook it" in reply
+    lunch = svc.handle_message(A, "lunch", at(0, 12))[0]
+    assert getattr(lunch, "photo", None) and lunch.photo["inline"]

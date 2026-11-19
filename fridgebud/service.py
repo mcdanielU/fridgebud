@@ -58,7 +58,8 @@ class Config:
     receipt_hour: int = 11       # Sunday receipt goes out at this local hour
     fallback_daily_cap: int = 5  # free-form replies sent to the model per household per day
     agent_daily_cap: int = 60    # free-form messages handled by the agent per household per day
-    ai_idea_daily_cap: int = 3   # AI-written dinner ideas per household per day (when the dish list fits the fridge poorly)
+    ai_idea_daily_cap: int = 3
+    dish_photos: bool = True          # a picture of the dish on the daily idea (Telegram, when GEMINI_API_KEY is set)   # AI-written dinner ideas per household per day (when the dish list fits the fridge poorly)
     force_voice: str = ""        # 'bud' or 'plain' for everyone; empty keeps the 50/50 voice test
     checkin_hour: int = 20       # evening "how did it go?" text, local time, only after an unanswered 4:30 text
     quiet_hour: int = 21         # Bud never starts a conversation at or after this local hour
@@ -780,7 +781,7 @@ class Service:
             pick = self._meal_pick(h, meal, today)
             self.store.log(h.id, now, "meal_text", meal=meal, day=today.isoformat(), sent=bool(pick))
             if pick:
-                text = self._say(prof, messages.meal_idea(pick), seed=h.id + today.toordinal())
+                text = self._with_dish_photo(self._say(prof, messages.meal_idea(pick), seed=h.id + today.toordinal()), pick.title)
                 out += [(ph, text) for ph in self._recipients(h)]
         # the one-time offers: breakfast from day 3, lunch from day 5, one a day at most, never on top of anything open
         if not prof.consented_at or prof.awaiting:
@@ -804,7 +805,7 @@ class Service:
             prof.awaiting = f"offer_{meal}"
             self.accounts.save(prof)
             self.store.log(h.id, now, "meal_offer", meal=meal, day=today.isoformat())
-            text = self._say(prof, messages.meal_offer(meal, pick), seed=h.id + today.toordinal())
+            text = self._with_dish_photo(self._say(prof, messages.meal_offer(meal, pick), seed=h.id + today.toordinal()), pick.title)
             out += [(ph, text) for ph in self._recipients(h)]
             return
 
@@ -978,6 +979,10 @@ class Service:
             return self._typed_taste(h, names[0] if names else "", now)
         if kind in {"link", "paste", "recipe", "steps", "recipes", "audio", "shop", "shopadd", "shopping", "shopfor", "order", "more", "less", "missing", "outside", "clearshop", "roast"}:
             return self._kitchen(h, kind, names, now)
+        if kind == "off":
+            self.store.log(h.id, now, "off_tonight", day=today.isoformat(), recipe=(h.last_suggestion or {}).get("recipe"))
+            urgent = [e.item.name for e in plan.entries(self.engine, h.id, today) if e.days_left <= 0]
+            return [messages.night_off(urgent)]
         if kind == "all":
             entries = plan.entries(self.engine, h.id, today)
             tracked_ids = {e.item.id for e in entries}
@@ -990,7 +995,7 @@ class Service:
             pick = plan.tonight(self.engine, h, today, avoid=last, meal=meal)
             self.store.log(h.id, now, "meal_asked", meal=meal, recipe=pick.title if pick else None)
             if pick and pick.meal == meal:
-                return [messages.dinner_idea(pick)]
+                return [self._with_dish_photo(messages.dinner_idea(pick), pick.title)]
             if self.chef is not None:
                 return self._new_recipe(h, f"a {meal} idea", now, f"Nothing in your fridge fits {meal} yet, so here's one I wrote.")
             return [messages.NO_IDEA]
@@ -1007,7 +1012,9 @@ class Service:
                                              shown=plan.shown_today(h, today) + [ai.title], shown_on=today.isoformat())
                     self.store.save_household(h)
             self.store.log(h.id, now, "dinner_asked", recipe=pick.title if pick else None)
-            return [messages.dinner_idea(pick, same_again=pick.title.lower() in before) if pick else messages.NO_IDEA]
+            if not pick:
+                return [messages.NO_IDEA]
+            return [self._with_dish_photo(messages.dinner_idea(pick, same_again=pick.title.lower() in before), pick.title)]
         active = self.store.active_items(h.id)
         matched = [m for m in (self.engine._match(h, n, active) for n in names) if m]
         moved = plan.mark_old(self.engine, h, matched, today)
@@ -1211,6 +1218,8 @@ class Service:
         sent = [e for e in self.store.events(h.id, "nudge") if self._day(h, e) == today]
         if not sent or any(self._day(h, e) == today for e in self.store.events(h.id, "checkin")):
             return
+        if any(self._day(h, e) == today for e in self.store.events(h.id, "off_tonight")):
+            return                                   # they said they're not cooking: don't ask how dinner went
         since = _at(sent[-1])
         if now - since < timedelta(hours=2):   # a late 4:30 text (server was down) mustn't get a check-in on its heels
             return
@@ -1264,12 +1273,14 @@ class Service:
                 if ignored in messages.IGNORED_PS:
                     self.store.log(h.id, now, "ignored_ps", level=ignored)
                     extras = [messages.IGNORED_PS[ignored]]       # this one beats any other P.S.
-                if not extras:   # at most one P.S. a day
+                busy = "2️⃣" in text                    # already two choices: a tip would make it a wall of text
+                if not extras and not busy:   # at most one P.S. a day
                     extras = [x for x in (self._taste_ps(h, now),) if x]
-                if not extras:
+                if not extras and not busy:
                     extras = [x for x in (self._tip(h, prof, now),) if x]
                 for extra in extras:
                     text += "\n\n" + extra
+                text = self._with_dish_photo(text, (self.store.get_household(h.id).last_suggestion or {}).get("recipe"))
                 out += [(p, text) for p in self._recipients(h)]
             for h in self.store.all_households():
                 if h.opted_in and not (h.persona or {}).get("snoozed"):   # stepped back: nothing until they write
@@ -1403,6 +1414,13 @@ class Service:
                                     [m.name for m in missing],
                                     staples, self._as_of(h, now), lead)
         return messages.Card(card, photo=self._picture(r))
+
+    def _with_dish_photo(self, text: str, title: str | None):
+        """The daily idea arrives as a picture of the dish with the short text as its caption: one message, food first.
+        Each dish is drawn once and reused. If there's no picture (no key, daily cap, an error) the text goes alone."""
+        if not title or not self.config.dish_photos or len(text) > 1000:   # Telegram captions stop at 1024 characters
+            return text
+        return messages.Card(text, photo={"prompt": dish_prompt(title), "key": dish_key(title), "inline": True})
 
     @staticmethod
     def _picture(r: Recipe) -> dict | None:
@@ -1787,6 +1805,10 @@ class Service:
         if taste:
             context += f" Their taste: {taste}."
         quoted = self._quoted(h.phone)
+        tonight = (h.last_suggestion or {}).get("recipe")
+        if tonight:
+            context += (f" Today's dinner pick (what 'tonight', 'it' or 'the recipe' usually means): {tonight}."
+                        f" The current recipe above is only the last one they opened.")
         if quoted:
             context += f' They are replying to this message of yours: "{quoted}"'
         if any(now - _at(e) <= timedelta(minutes=15) for e in self.store.events(h.id, "photo_unreadable")):

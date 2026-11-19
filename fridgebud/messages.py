@@ -98,52 +98,59 @@ def _when(entry: Entry) -> str:
 _MEAL_LABELS = {"breakfast": "Breakfast", "brunch": "Brunch", "lunch": "For lunch", "snack": "Snack", "dinner": "Tonight"}
 
 
+_MEAL_ICONS = {"breakfast": "🍳", "brunch": "🥞", "lunch": "🥪", "snack": "🍎", "dinner": "🍽️"}
+
+
 def _idea(s: Suggestion) -> str:
-    uses = ", ".join(i.name for i in s.rescues[:3])
-    label = _MEAL_LABELS.get(s.meal, "Tonight")
-    if s.minutes is None:
-        text = f"{label}: {s.title}, no cooking needed"
-    elif uses:
-        text = f"{label}: {s.title}, {s.minutes} min (uses {uses})"
-    else:
-        text = f"{label}: {s.title}, {s.minutes} min"
+    """Two short lines a tired person can read at a glance: the dish, then time and what it rescues."""
+    uses = ", ".join(i.name for i in s.rescues[:2])
+    label = _MEAL_LABELS.get(s.meal, "Tonight").replace("For lunch", "Lunch")
+    head = f"{_MEAL_ICONS.get(s.meal, '🍽️')} {label}: {s.title}"
+    when = "No cooking" if s.minutes is None else f"{s.minutes} min"
+    detail = f"⏱️ {when}" + (f" · uses your {uses}" if uses else "")
     if s.ai:
-        text += "\n🧪 I wrote this one: your fridge alone didn't make a full meal. I'll add what's missing to your list."
-    return text
+        detail += "\n🧪 My own idea. SHOP adds what's missing."
+    return f"{head}\n{detail}"
 
 
-PICK_FOOTER = "Reply 👍 to cook this\nReply 👎 for a different idea"
+PICK_MARK = "👍 cook it"
+PICK_FOOTER = f"{PICK_MARK}\n👎 another idea"
 
 
 def daily_nudge(watchlist: list[Entry], suggestion: Suggestion | None) -> str | None:
-    """The one daily text. A pick whenever the fridge can make something, so "what's for dinner?" is already
-    answered before it's asked; None when there's nothing worth saying (no text beats a useless one)."""
+    """The one daily text, built to be read in two seconds: the dish, one detail line, the replies.
+    A pick whenever the fridge can make something; None when there's nothing worth saying."""
     fresh = [e for e in watchlist if not e.past_window]
     stale = [e for e in watchlist if e.past_window]
     if not fresh and not stale and not suggestion:
         return None
-    lines: list[str] = []
-    if fresh:
-        listed = ", ".join(f"{e.item.name} ({_when(e)})" for e in fresh[:3])
-        more = f" +{len(fresh) - 3} more" if len(fresh) > 3 else ""
-        lines += [f"Use soon: {listed}{more}", ""]
+    blocks: list[str] = []
     if suggestion:
-        lines.append(_idea(suggestion))
+        idea = _idea(suggestion)
         if suggestion.breakfast:
-            lines.append(_idea(suggestion.breakfast))
+            idea += "\n" + _idea(suggestion.breakfast).split("\n")[0]
+        blocks.append(idea)
+        covered = {i.id for i in suggestion.rescues}
+        others = [e for e in fresh if e.item.id not in covered]   # the pick already says what it rescues
+        if others:
+            more = f" +{len(others) - 2}" if len(others) > 2 else ""
+            blocks.append(f"⏰ Also use soon: {', '.join(e.item.name for e in others[:2])}{more}")
+    elif fresh:
+        listed = ", ".join(f"{e.item.name} ({_when(e)})" for e in fresh[:3])
+        blocks.append(f"⏰ Use soon: {listed}" + (f" +{len(fresh) - 3}" if len(fresh) > 3 else ""))
     if stale:
-        lines += ["", f"Worth checking: {', '.join(e.item.name for e in stale[:3])}. Still good, or tossed?"]
-    lines += ["", PICK_FOOTER if suggestion else f"Reply GOOD or TOSSED {(stale or fresh)[0].item.name}"]
-    return "\n".join(lines)
+        blocks.append(f"🤔 Still good? {', '.join(e.item.name for e in stale[:2])}")
+    blocks.append(PICK_FOOTER if suggestion else f"Reply GOOD or TOSSED {(stale or fresh)[0].item.name}")
+    return "\n\n".join(blocks)
 
 
 def still_on(recipe: str, meal: str = "dinner", alt: str | None = None) -> str:
     """The one gentle follow-up when the pick got no reply at all."""
-    when = "tonight" if meal == "dinner" else "lunch"
-    lines = [f"Still on for {when}? 🍳", "", f"Planning to make the {recipe}?", "", "Reply 👍 if yes"]
+    when = "tonight" if meal == "dinner" else "for lunch"
+    lines = [f"Still making the {recipe} {when}? 🍳", "", "👍 yes"]
     if alt:
-        lines.append(f"Reply 2 for the {short_title(alt)} instead")
-    lines.append("Reply 👎 for a different idea")
+        lines.append(f"2️⃣ your saved {short_title(alt)} instead")
+    lines.append("👎 another idea")
     return "\n".join(lines)
 
 
@@ -157,10 +164,9 @@ def short_title(title: str) -> str:
 
 
 def with_saved_option(text: str, title: str, uses: list[str]) -> str:
-    """The daily pick, plus one of their own saved recipes as option 2 (no long title to type back)."""
-    alt = f"⭐ Or one of your saved recipes: {title}" + (f"\n(uses your {', '.join(uses[:2])})" if uses else "")
-    footer = f"Reply 👍 to cook this\nReply 2 for the {short_title(title)}\nReply 👎 for a different idea"
-    return text.replace(PICK_FOOTER, alt + "\n\n" + footer)
+    """The daily pick, plus one of their own saved recipes as option 2: one line, no long title to type back."""
+    footer = f"{PICK_MARK}\n2️⃣ your saved {short_title(title)} ⭐\n👎 another idea"
+    return text.replace(PICK_FOOTER, footer)
 
 
 def made_reward(cheer: str, recipe: str | None, rescued: list[str], worth: float, month: float, cooked: int,
@@ -227,7 +233,6 @@ TIP_GAP_DAYS = 2     # never two days running
 
 
 # How often Bud texts: MORE / LESS, the one-time breakfast and lunch offers, the morning and midday ideas ----
-_MEAL_EMOJI = {"breakfast": "☀️", "lunch": "🥪"}
 
 
 def clock(minutes: int) -> str:
@@ -237,16 +242,14 @@ def clock(minutes: int) -> str:
 
 def meal_idea(s: Suggestion) -> str:
     """The opt-in morning or midday text."""
-    return (f"{_MEAL_EMOJI.get(s.meal, '🍽️')} {_idea(s)}\n\n"
-            f"Want another idea? Reply {s.meal.upper()}\nToo many texts? Reply LESS")
+    return f"{_idea(s)}\n\nAnother idea? Reply {s.meal.upper()}\nFewer texts? Reply LESS"
 
 
 def meal_offer(meal: str, s: Suggestion) -> str:
     """Asked once, at that meal's time, with a real idea in hand: value first, then the question."""
-    opener = "Morning! " if meal == "breakfast" else ""
+    opener = "Morning! ☀️\n\n" if meal == "breakfast" else ""
     every = "every morning" if meal == "breakfast" else "every day around now"
-    return (f"{_MEAL_EMOJI.get(meal, '🍽️')} {opener}{_idea(s)}\n\n"
-            f"Want a {meal} idea like this {every}?\nReply 👍 for yes or 👎 for no thanks")
+    return f"{opener}{_idea(s)}\n\nWant one {every}?\n👍 yes\n👎 no thanks"
 
 
 def meals_on(meals: list[str], times: dict[str, int]) -> str:
@@ -804,6 +807,14 @@ def place_set(said: str, zone: str, hour: int, minute: int) -> str:
 
 
 # Bud reaching out ----------------------------------------------------------
+def night_off(urgent: list[str]) -> str:
+    """They're not cooking tonight: no idea, no check-in. One heads-up if something won't last."""
+    msg = "Night off 🛋️ No ideas or check-ins from me tonight."
+    if urgent:
+        msg += f"\nHeads-up: use the {' and '.join(urgent[:2])} today if you can."
+    return msg
+
+
 def evening_checkin(recipe: str | None, names: list[str], meal: str = "dinner") -> str:
     """After their meal, following a daily idea nobody answered: ask when the answer is actually known."""
     first = names[0] if names else "it"

@@ -48,7 +48,7 @@ def test_one_tap_swaps_todays_pick(svc, tap):
     pick(svc)
     first = svc.store.get_household(1).last_suggestion["recipe"]
     reply = svc.handle_message(A, tap, at(0, 16, 40))[0]
-    assert reply.startswith("Tonight: ") and first not in reply.split("\n")[0]
+    assert reply.startswith("🍽️ Tonight: ") and first not in reply.split("\n")[0]
     assert svc.store.events(1, "pick_swapped")
 
 
@@ -128,7 +128,7 @@ def test_cook_after_locking_in_gives_that_dishes_steps():
     s.tick(at(0))
     s.handle_message(A, "👍", at(0, 16, 40))
     steps = s.handle_message(A, "COOK", at(0, 17))[0]
-    assert "Steps:" in steps and not steps.startswith("Tonight: ")          # the steps, not a different idea
+    assert "Steps:" in steps and not steps.startswith("🍽️ Tonight: ")          # the steps, not a different idea
     assert s.book.current(1) is not None
 
 
@@ -207,10 +207,10 @@ def test_more_asks_which_meals_then_sends_those_ideas(svc):
     assert on.startswith("Done ✅ You'll get a breakfast idea around 7:30 AM and a lunch idea around 11 AM")
     svc.handle_message(A, "bought eggs, bread, baby spinach, chicken thighs", at(1, 6))
     morning = texts(svc, 1, 7, 31)
-    assert len(morning) == 1 and morning[0].startswith("☀️ Breakfast: ") and "Too many texts? Reply LESS" in morning[0]
+    assert len(morning) == 1 and morning[0].startswith("🍳 Breakfast: ") and "Fewer texts? Reply LESS" in morning[0]
     assert texts(svc, 1, 8) == []                                           # once a morning
     midday = texts(svc, 1, 11, 1)
-    assert len(midday) == 1 and midday[0].startswith("🥪 For lunch: ")
+    assert len(midday) == 1 and midday[0].startswith("🥪 Lunch: ")
 
 
 def test_less_turns_extras_off_then_goes_every_other_day_and_more_undoes_it(svc):
@@ -228,7 +228,7 @@ def test_breakfast_offer_comes_once_on_day_3_at_breakfast_time(svc):
         svc.handle_message(A, "bought eggs, bread, baby spinach", at(day, 6))
         assert not any("Want a breakfast idea" in t for t in texts(svc, day, 7, 31))
     offer = texts(svc, 3, 7, 31)
-    assert len(offer) == 1 and offer[0].startswith("☀️ Morning! Breakfast: ") and "Reply 👍 for yes or 👎 for no thanks" in offer[0]
+    assert len(offer) == 1 and offer[0].startswith("Morning! ☀️\n\n🍳 Breakfast: ") and "👍 yes\n👎 no thanks" in offer[0]
     assert svc.handle_message(A, "👍", at(3, 7, 40))[0].startswith("Done ✅ You'll get a breakfast idea around 7:30 AM")
     assert svc.store.get_household(1).persona["extra"] == ["breakfast"]
     assert not any("Want a breakfast idea" in t for d in range(4, 9) for t in texts(svc, d, 7, 31))   # never asked again
@@ -348,7 +348,7 @@ def test_cravings_go_straight_to_a_recipe(said, dish):
 def test_plain_words_work_as_well_as_emoji(svc, words, locked):
     pick(svc)
     reply = svc.handle_message(A, words, at(0, 16, 40))[0]
-    assert ("it is 👍" in reply) == locked and (reply.startswith("Tonight: ") or locked)
+    assert ("it is 👍" in reply) == locked and (reply.startswith("🍽️ Tonight: ") or locked)
 
 
 # the gentle follow-up when the pick got no reply --------------------------------------------
@@ -357,8 +357,8 @@ def test_silence_after_the_pick_gets_one_follow_up_an_hour_later(svc):
     recipe = svc.store.get_household(1).last_suggestion["recipe"]
     assert texts(svc, 0, 17, 0) == []                                       # not yet: give them an hour
     follow = texts(svc, 0, 17, 32)
-    assert len(follow) == 1 and follow[0].startswith("Still on for tonight? 🍳") and f"make the {recipe}?" in follow[0]
-    assert "Reply 👍 if yes" in follow[0] and "Reply 👎 for a different idea" in follow[0]
+    assert len(follow) == 1 and follow[0].startswith(f"Still making the {recipe} tonight? 🍳")
+    assert "👍 yes" in follow[0] and "👎 another idea" in follow[0]
     assert texts(svc, 0, 17, 50) == []                                      # once
     assert "it is 👍" in svc.handle_message(A, "👍", at(0, 17, 55))[0]      # 👍 to the follow-up locks it in
     assert any("How was dinner" in t for t in texts(svc, 0, 20, 1))        # and the evening check-in still comes
@@ -388,7 +388,7 @@ def test_no_follow_up_too_close_to_when_they_eat(svc):
 def test_follow_up_offers_the_saved_recipe_too():
     from fridgebud import messages as m
     text = m.still_on("Thai basil stir-fry", "dinner", "Efo Riro (Yoruba Spinach Stew)")
-    assert "Reply 2 for the Efo Riro instead" in text
+    assert "2️⃣ your saved Efo Riro instead" in text
 
 
 
@@ -502,13 +502,13 @@ def test_when_the_dish_list_fits_the_fridge_poorly_the_ai_writes_a_proper_meal_w
     for text in ("hi", "yes", "2", "bought rotisserie chicken"):          # one ingredient: only single-ingredient dishes fit
         s.handle_message(A, text, MON)
     idea = s.handle_message(A, "DINNER", at(0, 12))[0]
-    assert "🧪 I wrote this one" in idea and "Jollof" in idea and "Reply 👍 to cook this" in idea
+    assert "🧪 My own idea" in idea and "Jollof" in idea and "👍 cook it" in idea
     assert [c for c in chef.calls if isinstance(c, tuple)][0][0] == "generate"
     state = s.store.get_household(1).last_suggestion
     assert state["recipe"] and state.get("ai") is True                     # so 👍 and COOK work on it
     s.handle_message(A, "DINNER", at(0, 12, 2))
     third = s.handle_message(A, "DINNER", at(0, 12, 4))[0]                 # cap of 2 reached: back to the dish list
-    assert "🧪 I wrote this one" not in third
+    assert "🧪 My own idea" not in third
     assert len(s.store.events(1, "ai_idea")) == 2
 
 
@@ -518,4 +518,4 @@ def test_the_daily_pick_can_be_ai_written_when_nothing_in_the_list_fits():
     for text in ("hi", "yes", "2", "bought rotisserie chicken"):
         s.handle_message(A, text, MON)
     pick = [t for p, t in s.tick(at(0)) if p == A]
-    assert pick and "🧪 I wrote this one" in pick[0]
+    assert pick and "🧪 My own idea" in pick[0]

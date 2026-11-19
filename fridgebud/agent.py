@@ -41,6 +41,8 @@ You have tools. Use them to actually do things; do not just describe what could 
 - If they say stop, no more, don't use or I'm tired of some ingredient or dish ("stop adding the rotisserie chicken"),
   run_command "DISLIKE <it>". That is exactly what it is for: never say you can't do that. Never steer them to mark
   food used or tossed unless they say they actually used or threw it out: that records something that didn't happen.
+- If they skip tonight, aren't cooking, are eating out or ordering in, or say they're off duty, run_command "OFF".
+  It stops tonight's check-in. Don't ask whether they want another idea first.
 - If a tool says something isn't possible, say so plainly and in character, and offer the nearest thing you can do.
 - If the person is just chatting, chat back briefly and bring it round to their kitchen.
 - General cooking questions (how long to boil an egg, a substitute for buttermilk) you can answer yourself, briefly.
@@ -79,7 +81,7 @@ TOOLS = [
                      "AUDIO (audio cook-along for the current recipe) | SAVE (keep the recipe just shown in their saved recipes) | "
                      "SAVE <dish> (keep a recipe Bud showed earlier) | RECIPES (saved recipes) | ROAST (roast the fridge) | "
                      "DISLIKE <ingredient or dish> (never use it in ideas; the food stays on their list) | "
-                     "LIKED <ingredient or dish> (undo a dislike) | STOP | "
+                     "LIKED <ingredient or dish> (undo a dislike) | OFF (not cooking tonight: no check-in) | STOP | "
                      "or a recipe URL to save it."),
      "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
     {"name": "create_recipe",

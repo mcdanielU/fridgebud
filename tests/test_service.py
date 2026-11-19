@@ -111,7 +111,7 @@ def test_bud_and_plain_get_the_same_facts(svc):
     onboard(svc, A, "ground beef, tortillas")
     onboard(svc, B, "ground beef, tortillas")
     sent = dict(svc.tick(at(0)))
-    assert sent[A].startswith("Use soon: ground beef")
+    assert sent[A].startswith("🍽️ Tonight: ")
     assert sent[B] == sent[A]                                    # same facts; Bud never adds a line
     assert "Rescued: ground beef (≈$11)" in svc.handle_message(B, "made it", at(0, 19))[0]
     assert "Rescued: ground beef (≈$11)" in svc.handle_message(A, "made it", at(0, 19))[0]
@@ -343,9 +343,9 @@ def test_receipt_photo_gets_plan_but_no_age_question(svc):
 def test_dinner_on_demand_then_made_rescues(svc):
     onboard(svc, A, "chicken thighs, baby spinach, tortillas, cheddar")
     idea = svc.handle_message(A, "what's for dinner?", at(0, 12))[0]
-    assert idea.startswith("Tonight: ") and "Reply 👍 to cook this" in idea
+    assert idea.startswith("🍽️ Tonight: ") and "👍 cook it" in idea
     another = svc.handle_message(A, "DINNER", at(0, 12, 5))[0]
-    assert another.startswith("Tonight: ") and another != idea                 # a different idea second time
+    assert another.startswith("🍽️ Tonight: ") and another != idea                 # a different idea second time
     done = svc.handle_message(A, "made it", at(0, 19))[0]
     assert "done ✅" in done and "Rescued:" in done and done.rstrip().endswith("👎 if never again")
     assert len(svc.store.active_items(1)) < 4
@@ -365,14 +365,14 @@ def test_old_items_move_up_and_trigger_todays_nudge(svc):
     moved, plan_text = svc2.handle_message(A, "OLD spinach", at(0, 10))
     assert moved == "Moved up: baby spinach." and "• baby spinach: by tomorrow" in plan_text
     sent = svc2.tick(at(0))
-    assert len(sent) == 1 and "baby spinach (use by tomorrow)" in sent[0][1]   # the 4:30 text fires today
+    assert len(sent) == 1 and "uses your baby spinach" in sent[0][1]   # the 4:30 text fires today
     assert "couldn't find" in svc2.handle_message(A, "old lobster", at(0, 17))[0]
 
 
 def test_fallback_can_route_to_dinner(svc):
     svc.interpreter = FakeInterpreter("DINNER")
     onboard(svc, A, "chicken thighs, baby spinach")
-    assert svc.handle_message(A, "no clue what to eat honestly", at(0, 12))[0].startswith("Tonight: ")
+    assert svc.handle_message(A, "no clue what to eat honestly", at(0, 12))[0].startswith("🍽️ Tonight: ")
     assert validate("DINNER", 0.9) == "DINNER" and validate("OLD milk", 0.9) == "OLD milk"
 
 

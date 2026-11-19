@@ -88,7 +88,7 @@ def test_signup_sends_welcome_then_full_flow_over_sms(site):
 
     app.clock = lambda: NOW.replace(hour=16, minute=30)
     assert app.tick() == 1
-    assert sender.sent[-1][1].startswith("Use soon: ground beef")
+    assert sender.sent[-1][1].startswith("🍽️ Tonight: ")
     assert app.tick() == 0
 
 
