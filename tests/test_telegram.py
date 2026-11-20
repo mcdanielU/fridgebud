@@ -195,3 +195,19 @@ def test_thumbs_up_on_an_on_demand_idea_locks_it_and_counts_once():
                                     "new_reaction": [{"type": "emoji", "emoji": "👍"}]}}
     handle_update(app, unknown)                                    # a message Bud can't place: silence, not a guess
     assert len(tg.texts()) == before + 1
+
+
+def test_a_stalled_telegram_read_is_a_telegram_error_not_a_crash(monkeypatch):
+    """A read timeout is a raw TimeoutError, not a URLError. It used to escape the poll loop and stop Bud for good."""
+    import urllib.request
+
+    import pytest
+
+    from fridgebud.telegram import TelegramError, _api_call
+
+    def stalled(*args, **kwargs):
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(urllib.request, "urlopen", stalled)
+    with pytest.raises(TelegramError):
+        _api_call("123:fake")("getUpdates", {}, 1)

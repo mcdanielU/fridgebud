@@ -626,6 +626,15 @@ def test_photo_with_recipe_caption_and_a_non_recipe_picture():
     assert sent == [messages.SHOT_NOT_RECIPE]
 
 
+def test_recipe_caption_on_a_photo_of_groceries_reads_it_as_groceries():
+    svc = make(chef=ShotChef())
+    app, sent = shot_app(svc, KindExtractor("haul", ["chicken thighs", "canned corn"]), [b"x"])
+    svc.chef.read_image = lambda image, mime: None
+    app.inbound(A, "Come up with a healthy recipe for me", [("f1", "image/jpeg")])
+    assert messages.SHOT_NOT_RECIPE not in sent and sent
+    assert {"chicken thighs", "canned corn"} <= {i.name for i in svc.store.active_items(1)}
+
+
 def test_vision_reply_kind_is_read():
     from fridgebud.capture import ClaudeVisionExtractor
     def transport(url, headers, body):

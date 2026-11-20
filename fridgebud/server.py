@@ -217,10 +217,11 @@ class App:
                     else:
                         captured += self.extractor.extract(blob, mtype)
                 except Exception as err:
+                    traceback.print_exc()   # which step failed (Telegram file fetch or the vision call) shows up in `fly logs`
                     with self.service.lock:
                         self.service.store.log(None, self.clock(), "capture_error", phone=phone, error=str(err)[:300])
             if recipe_shots:
-                self._queue_shots(phone, recipe_shots, order)
+                self._queue_shots(phone, recipe_shots, order, text or "")
             if menus:
                 try:
                     place, dishes = chef.read_menu(*menus[0])
@@ -238,10 +239,12 @@ class App:
         except Exception:
             traceback.print_exc()
 
-    def _queue_shots(self, phone: str, shots: list[tuple[bytes, str]], order: int) -> None:
+    def _queue_shots(self, phone: str, shots: list[tuple[bytes, str]], order: int, caption: str = "") -> None:
         with self._shots_lock:
             entry = self._shots.setdefault(phone, {"items": [], "timer": None})
             entry["items"] += [(order, n, blob, mtype) for n, (blob, mtype) in enumerate(shots)]
+            if caption:
+                entry["caption"] = caption   # kept so a groceries photo sent with "recipe" in the caption can still be answered
             if entry["timer"] is not None:
                 entry["timer"].cancel()
             if self.shot_delay > 0:  # wait for the rest of the album before reading any of it
@@ -272,6 +275,21 @@ class App:
                         self.service.store.log(None, self.clock(), "chef_error", phone=phone, error=str(err)[:300])
             if failed and not texts:
                 return self.send(phone, messages.AI_DOWN)
+            if not texts and self.extractor is not None:
+                # No recipe in the picture. A caption like "come up with a recipe for me" on a photo of groceries lands
+                # here, so read the picture as food before giving up, and answer the caption with those items.
+                captured: list[CapturedItem] = []
+                for _, _, blob, mtype in sorted(entry["items"], key=lambda i: (i[0], i[1])):
+                    try:
+                        captured += self.extractor.extract(blob, mtype)
+                    except Exception as err:
+                        traceback.print_exc()
+                        with self.service.lock:
+                            self.service.store.log(None, self.clock(), "capture_error", phone=phone, error=str(err)[:300])
+                if captured:
+                    for reply in self.service.handle_message(phone, entry.get("caption", ""), self.clock(), captured, has_media=True):
+                        self.send(phone, reply)
+                    return
             for reply in self.service.save_recipe_shot(phone, "\n---\n".join(texts) or None, self.clock()):
                 self.send(phone, reply)
         except Exception:

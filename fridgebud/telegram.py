@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
+import http.client
 import json
 import re
 import os
@@ -70,6 +71,10 @@ def _api_call(token: str) -> Call:
             raise TelegramError(f"Telegram {method} failed ({err.code}): {detail}") from None
         except urllib.error.URLError as err:
             raise TelegramError(f"Telegram {method} failed: {err.reason}") from None
+        except (OSError, http.client.HTTPException, ValueError) as err:
+            # A stalled read (TimeoutError), a dropped connection or a half-sent reply is not wrapped in URLError.
+            # Left alone it escapes the poll loop and stops Bud for good, so treat it as one more Telegram hiccup.
+            raise TelegramError(f"Telegram {method} failed: {type(err).__name__}") from None
         if not reply.get("ok"):
             raise TelegramError(f"Telegram {method} failed: {reply.get('description', '')}")
         return reply.get("result")
@@ -82,7 +87,7 @@ def _download(token: str) -> Callable[..., bytes]:
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 return resp.read(max_bytes + 1)
-        except urllib.error.URLError:
+        except (OSError, http.client.HTTPException):  # URLError, read timeouts, dropped connections
             raise TelegramError("Telegram photo download failed") from None
     return download
 
@@ -110,6 +115,10 @@ def _upload(token: str):
             raise TelegramError(f"Telegram {method} failed ({err.code}): {detail}") from None
         except urllib.error.URLError as err:
             raise TelegramError(f"Telegram {method} failed: {err.reason}") from None
+        except (OSError, http.client.HTTPException, ValueError) as err:
+            # A stalled read (TimeoutError), a dropped connection or a half-sent reply is not wrapped in URLError.
+            # Left alone it escapes the poll loop and stops Bud for good, so treat it as one more Telegram hiccup.
+            raise TelegramError(f"Telegram {method} failed: {type(err).__name__}") from None
         if not reply.get("ok"):
             raise TelegramError(f"Telegram {method} failed: {reply.get('description', '')}")
         return reply.get("result")
@@ -192,10 +201,17 @@ class TelegramSender:
         self._remember(to, self.call("sendPhoto", {"chat_id": to[len(PREFIX):], "photo": ref, "caption": caption[:1000]}, 30), caption)
 
     def fetch_media(self, file_id: str, max_bytes: int = MAX_PHOTO_BYTES) -> bytes:
-        info = self.call("getFile", {"file_id": file_id}, 20)   # Telegram itself refuses files over 20 MB ("file is too big")
-        if info.get("file_size", 0) > max_bytes:
-            raise TelegramError("File is too large.")
-        blob = self.download(info["file_path"], max_bytes) if max_bytes != MAX_PHOTO_BYTES else self.download(info["file_path"])
+        for attempt in (1, 2):   # Telegram's file servers sometimes stall once; a second try usually goes through
+            try:
+                info = self.call("getFile", {"file_id": file_id}, 30)   # Telegram itself refuses files over 20 MB ("file is too big")
+                if info.get("file_size", 0) > max_bytes:
+                    raise TelegramError("File is too large.")
+                blob = self.download(info["file_path"], max_bytes) if max_bytes != MAX_PHOTO_BYTES else self.download(info["file_path"])
+                break
+            except TelegramError as err:
+                if attempt == 2 or "too large" in str(err) or "too big" in str(err):
+                    raise
+                print(f"(Telegram file fetch failed, trying once more: {err})", flush=True)
         if len(blob) > max_bytes:
             raise TelegramError("File is too large.")
         return blob

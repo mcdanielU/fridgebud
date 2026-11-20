@@ -125,6 +125,7 @@ class Engine:
                 captured.extend(self.extractor.extract(blob, mtype))
             except Exception as err:  # a failed photo must never break the conversation
                 self.store.log(h.id, now, "capture_error", error=str(err)[:300])
+                print(f"(photo read failed: {type(err).__name__}: {str(err)[:300]})", flush=True)   # shows up in `fly logs`
         if not captured:
             self.store.log(h.id, now, "photo_unreadable")   # lets a follow-up question say so instead of going quiet about it
             return messages.PHOTO_UNREADABLE
